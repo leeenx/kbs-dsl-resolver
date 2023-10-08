@@ -1,6 +1,6 @@
 {
   "name": "kbs-dsl-resolver",
-  "version": "1.0.0",
+  "version": "1.0.3",
   "description": "",
   "main": "./dist/index.js",
   "scripts": {
@@ -27,7 +27,6 @@
     "@babel/preset-typescript": "^7.23.0",
     "@types/wechat-miniprogram": "^3.4.4",
     "babel-loader": "^9.1.3",
-    "clean-webpack-plugin": "^4.0.0",
     "webpack": "^5.88.2",
     "webpack-cli": "^5.1.4"
   }

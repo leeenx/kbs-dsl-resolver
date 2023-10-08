@@ -1,9 +1,10 @@
-const { CleanWebpackPlugin } = require('clean-webpack-plugin');
-
 module.exports = {
   mode: 'production',
   entry: {
-    index: './src/dsl-resolver.ts'
+    index: './src/index.ts'
+  },
+  output: {
+    libraryTarget: 'umd'
   },
   resolve: {
     extensions: ['.ts', '.tsx', '.js', '.jsx', '.json', '.wasm'],
@@ -34,9 +35,6 @@ module.exports = {
       }
     ],
   },
-  plugins: [
-    new CleanWebpackPlugin()
-  ],
   performance: {
     maxAssetSize: 20000000,
 	  maxEntrypointSize: 400000
