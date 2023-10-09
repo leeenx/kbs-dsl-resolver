@@ -19,8 +19,8 @@ export const globalScope: Record<string, any> = {
    * 以下是微信的全局对象或方法
   */
   wx,
-  performance,
-  atob,
+  performance: typeof performance !== 'undefined' ? performance : undefined,
+  atob: typeof atob !== 'undefined' ? atob : undefined,
   clearInterval,
   clearTimeout,
   setInterval,
@@ -87,8 +87,8 @@ export const globalScope: Record<string, any> = {
   String,
   Symbol,
   SyntaxError,
-  TextDecoder,
-  TextEncoder,
+  TextDecoder: typeof TextDecoder !== 'undefined' ? TextDecoder : undefined,
+  TextEncoder: typeof TextEncoder !== 'undefined' ? TextEncoder : undefined,
   TypeError,
   URIError,
   URL,
