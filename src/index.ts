@@ -1,5 +1,5 @@
 import * as helpers from './helpers';
-import { registerToGlobleScope, createModuleScope } from './customize';
+import { registerToGlobleScope, createModuleScope, globalScope } from './customize';
 import dslResolve from './dsl-resolver';
 
 // 注册 @babel/runtime/helpers
@@ -20,6 +20,7 @@ export default function stdResolve(dslJson) {
 }
 
 export {
+  globalScope,
   dslResolve,
   createModuleScope,
   registerToGlobleScope

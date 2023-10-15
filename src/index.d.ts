@@ -3,4 +3,5 @@ declare module 'kbs-dsl-resolver' {
   export function dslResolve(dslJson: any, customize?: any): any;
   export function createModuleScope(): any;
   export function registerToGlobleScope(member: Object): void;
+  export const globalScope: any;
 }
