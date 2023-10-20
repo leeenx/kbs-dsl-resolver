@@ -799,7 +799,12 @@ const moduleScopeMap: Record<string, Customize> = {};
 
 // 全局作用域名
 export const createModuleScope = (nameSpace?: string) => {
-  const customize = (nameSpace && getScopeByNameSpace(nameSpace)) || new Customize();
+  const customize = new Customize();
+  if (nameSpace) {
+    const moduleScope = moduleScopeMap[nameSpace];
+    if (moduleScope) return moduleScope;
+    moduleScopeMap[nameSpace] = customize;
+  }
   // commonjs 的 exports 与 commonjs2 的 module.exports
   const moduleExports: any = {};
   Object.assign(customize.varScope, {
@@ -808,9 +813,6 @@ export const createModuleScope = (nameSpace?: string) => {
       exports: moduleExports
     }
   });
-  if (nameSpace) {
-    moduleScopeMap[nameSpace] = customize;
-  }
   return customize;
 };
 
@@ -827,10 +829,7 @@ export const registerToGlobleScope = (member: Object) => {
 
 // 提供给开发注册的接口
 export const registerToScope = (nameSpace: string, member: Object) => {
-  const moduleScope = getScopeByNameSpace(nameSpace);
-  if (!moduleScope) {
-    throw new Error(`nameSpace: ${nameSpace} 不存在!`);
-  }
+  const moduleScope = createModuleScope(nameSpace);
   if (typeof member !== 'object') {
     throw new Error('registerToScope 只支持类型为 Object 的参数');
   }
