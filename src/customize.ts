@@ -51,6 +51,8 @@ export const globalScope: Record<string, any> = {
       case 'react-dom':
       case 'ReactDOM':
         return globalScope.ReactDOM;
+      case 'lodash':
+        return globalScope._;
       default:
         return globalScope[deps];
     }
@@ -793,9 +795,11 @@ export default class Customize {
   }
 }
 
+const moduleScopeMap: Record<string, Customize> = {};
+
 // 全局作用域名
-export const createModuleScope = () => {
-  const customize = new Customize();
+export const createModuleScope = (nameSpace?: string) => {
+  const customize = (nameSpace && getScopeByNameSpace(nameSpace)) || new Customize();
   // commonjs 的 exports 与 commonjs2 的 module.exports
   const moduleExports: any = {};
   Object.assign(customize.varScope, {
@@ -804,8 +808,14 @@ export const createModuleScope = () => {
       exports: moduleExports
     }
   });
+  if (nameSpace) {
+    moduleScopeMap[nameSpace] = customize;
+  }
   return customize;
 };
+
+// 按 nameSpace 返回 scope
+export const getScopeByNameSpace = (nameSpace: string) => moduleScopeMap[nameSpace];
 
 // 提供给开发的注册接口
 export const registerToGlobleScope = (member: Object) => {
@@ -813,4 +823,16 @@ export const registerToGlobleScope = (member: Object) => {
     throw new Error('registerToGlobleScope 只支持类型为 Object 的参数');
   }
   Object.assign(globalScope, member);
+};
+
+// 提供给开发注册的接口
+export const registerToScope = (nameSpace: string, member: Object) => {
+  const moduleScope = getScopeByNameSpace(nameSpace);
+  if (!moduleScope) {
+    throw new Error(`nameSpace: ${nameSpace} 不存在!`);
+  }
+  if (typeof member !== 'object') {
+    throw new Error('registerToScope 只支持类型为 Object 的参数');
+  }
+  Object.assign(moduleScope.varScope, member);
 };
