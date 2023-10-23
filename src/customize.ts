@@ -175,11 +175,12 @@ export default class Customize {
   varScope: any = {
     __returnObject__: null,
     __isBreak__: false,
-    __isContinute__: false
+    __isContinute__: false,
+    __isHotUpdating__: false // 热更新中变量
   };
   // 常量
   const(key: string, valueDsl: DslJson | DslJson[]) {
-    if (this.varScope.hasOwnProperty(key)) {
+    if (!this.varScope.__isHotUpdating__ && this.varScope.hasOwnProperty(key)) {
       throw new Error('Uncaught TypeError: Assignment to constant variable.');
     }
     Object.defineProperty(this.varScope, key, {
