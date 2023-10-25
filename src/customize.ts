@@ -200,7 +200,8 @@ export default class Customize {
       if (isVarKind) {
         this.varScope[key] = this.getValue(valueDsl);
       } else {
-        throw new Error(`Uncaught SyntaxError: Identifier '${key}' has already been declared`);
+        const errMsg = `Uncaught SyntaxError: Identifier "${key}" has already been declared`;
+        throw new Error(errMsg);
       }
     } else {
       Object.defineProperty(this.varScope, key, {
@@ -613,14 +614,16 @@ export default class Customize {
     const anonymousFn = function() {
       const customize = new Customize(parentVarScope);
       const args = arguments;
-      // 在函数上下文挂载 arguments
-      customize.const('arguments', {
-        type: 'array-literal',
-        value: arguments
-      });
-      // 在函数上下文中挂载 this
-      // @ts-ignore
-      customize.const('this', this);
+      if (!isBlockStatement) {
+        // 在函数上下文挂载 arguments
+        customize.const('arguments', {
+          type: 'array-literal',
+          value: arguments
+        });
+        // 在函数上下文中挂载 this
+        // @ts-ignore
+        customize.const('this', this);
+      }
       params.forEach((name, index) => {
         // 形参用 let 不用 const
         customize.let(name!, args[index]);
