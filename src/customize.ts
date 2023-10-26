@@ -72,7 +72,7 @@ export const globalScope: Record<string, any> = {
   Int8Array,
   Int16Array,
   Int32Array,
-  Intl,
+  Intl: typeof Intl !== 'undefined' ? Intl : undefined,
   JSON,
   Map,
   Math,
