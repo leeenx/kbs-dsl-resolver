@@ -192,7 +192,7 @@ export default class Customize {
   };
   // 常量
   const(key: string, valueDsl: DslJson | DslJson[]) {
-    if (!this.varScope.__isHotUpdating__ && this.varScope.hasOwnProperty(key)) {
+    if (!this.varScope.__isHotUpdating__ && _.has(this.varScope, key)) {
       throw new Error(`Uncaught TypeError: Assignment to constant variable. ${key}`);
     }
     Object.defineProperty(this.varScope, key, {
@@ -220,12 +220,9 @@ export default class Customize {
         varScope = varScope.__parentVarScope__;
       }
     }
-    if (this.varScope.hasOwnProperty(key)) {
+    if (_.has(varScope, key)) {
       if (isVarKind) {
-        if (onlyDeclare) {
-          // 纯声明
-          if (!varScope.hasOwnProperty(key)) varScope[key] = undefined;
-        } else {
+        if (!onlyDeclare) {
           varScope[key] = valueDsl && this.getValue(valueDsl);
         }
       } else {
@@ -248,8 +245,12 @@ export default class Customize {
   batchConst(list: { key: string, value: any, k?: string, v?: any }[]) {
     list.forEach(({ key, value, k, v }) => key ? this.const(key, value) : this.const(k!, v))
   }
-  batchVar(list: { key: string, value: any, k?: string, v?: any }[], onlyDeclare: boolean = false) {
-    list.forEach(({ key, value, k, v }) => key ? this.var(key, value, onlyDeclare) : this.var(k!, v, onlyDeclare))
+  batchVar(list: { key: string, value: any, k?: string, v?: any }[]) {
+    list.forEach((item) => {
+      const { key, value, k, v } = item;
+      const onlyDeclare = key ? !_.has(item, 'value') : !_.has(item, 'v');
+      return key ? this.var(key, value, onlyDeclare) : this.var(k!, v, onlyDeclare)
+    })
   }
   batchLet(list: { key: string, value: any }[]) {
     this.batchVar(list);
@@ -269,11 +270,11 @@ export default class Customize {
   // 取值
   getConst(key: string) {
     let value:any = this.varScope[key];
-    if (!this.varScope.hasOwnProperty(key)) {
+    if (!_.has(this.varScope, key)) {
       // 当前作用域找不到，往上找
       let parent = this.varScope.__parentVarScope__;
       while(Boolean(parent)) {
-        if (parent.hasOwnProperty(key)) {
+        if (_.has(parent, key)) {
           value = parent[key];
           break;
         }
@@ -615,7 +616,11 @@ export default class Customize {
     // 内容区是一个独立的子作用域
     const contentThis = this.createContent();
     dslResolve(body, contentThis, true);
-    this.callWhile(test, body);
+    if (contentThis.varScope.__isBreak__) {
+      contentThis.varScope.__isBreak__ = false;
+    } else {
+      this.callWhile(test, body);
+    }
   }
 
   // for
@@ -625,7 +630,7 @@ export default class Customize {
     update,
     body
   ) {
-    for(dslResolve(init, this); this.getValue(test); dslResolve(update, this)) {
+    for(init && dslResolve(init, this); test ? this.getValue(test) : true; dslResolve(update, this)) {
       // 内容区是一个独立的子作用域
       const contentThis = this.createContent();
       dslResolve(body, contentThis, true);

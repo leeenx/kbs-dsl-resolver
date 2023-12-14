@@ -66,7 +66,7 @@ const dslResolve = (
       // 变量上提
       case 'prefix-vars':
       case 'p':
-        customize.batchVar(value.map(key => ({ key })), true);
+        customize.batchVar(value.map(key => ({ key })));
         break;
       /**
        * 直接调用内置解析函数
