@@ -45,7 +45,7 @@ const dslResolve = (
     if(['f', 'component', 'customize-function'].includes(type!)) {
       const json = dslJson as DslJson;
       if (
-        (type === 'f' && (!json.p || !json.body)) ||
+        (type === 'f' && (!json.p || !json.b)) ||
         (type !== 'f' && (!json.params || !json.body))
       ) {
         // 直接返回
