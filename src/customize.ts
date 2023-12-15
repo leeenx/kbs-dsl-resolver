@@ -10,6 +10,52 @@ type BinaryOperator = "==" | "!=" | "===" | "!==" | "<" | "<=" | ">" | ">=" | "<
 type UpdateOperator = "++" | "--";
 type LogicalOperator = "||" | "&&";
 
+// CanvasContext 的方法
+const canvasContextApis = [
+  'arc',
+  'arcTo',
+  'beginPath',
+  'bezierCurveTo',
+  'clearRect',
+  'clip',
+  'closePath',
+  'createCircularGradient',
+  'createLinearGradient',
+  'createPattern',
+  'draw',
+  'drawImage',
+  'fill',
+  'fillRect',
+  'fillText',
+  'lineTo',
+  'measureText',
+  'moveTo',
+  'quadraticCurveTo',
+  'rect',
+  'restore',
+  'rotate',
+  'save',
+  'scale',
+  'setFillStyle',
+  'setFontSize',
+  'setGlobalAlpha',
+  'setLineCap',
+  'setLineDash',
+  'setLineJoin',
+  'setLineWidth',
+  'setMiterLimit',
+  'setShadow',
+  'setStrokeStyle',
+  'setTextAlign',
+  'setTextBaseline',
+  'setTransform',
+  'stroke',
+  'strokeRect',
+  'strokeText',
+  'transform',
+  'translate'
+];
+
 // window对象的平替
 export const globalScope: Record<string, any> = {
   // 运行环境
@@ -853,6 +899,7 @@ export default class Customize {
     // 需要判断 this 指针
     const callee = this.getValue(calleeDsl, false);
     let parentCallee: any;
+    let isCanvasContextApi = false;
     if (_.isArray(calleeDsl) && calleeDsl.length > 1) {
       const lastIndex = calleeDsl.length - 1;
       lastMember = calleeDsl[lastIndex] as string;
@@ -863,11 +910,19 @@ export default class Customize {
           paramsDsl
         });
       }
-      if (!callee.prototype && ['call', 'apply', 'bind'].includes(lastMember)) {
+      if (
+        (!callee.prototype && ['call', 'apply', 'bind'].includes(lastMember))
+          || canvasContextApis.includes(lastMember)
+      ) {
         // 保留关键字
         const parentCalleeDsl = [...calleeDsl];
         parentCalleeDsl.pop();
         parentCallee = this.getOrAssignOrDissocPath(parentCalleeDsl);
+        // 表示是 CanvasContext
+        if (canvasContextApis.includes(lastMember)) {
+          isCanvasContextApi = parentCallee.canvas;
+          if (!isCanvasContextApi) lastMember = '';
+        }
       } else {
         lastMember = '';
       }
@@ -875,7 +930,7 @@ export default class Customize {
     const params = (paramsDsl || []).map(item => {
       return this.getValue(item);
     });
-    if (_.isFunction(callee)) {
+    if (_.isFunction(callee) || isCanvasContextApi) {
       // 函数类型
       if (isClass) {
         // console.log('+++++', { paramsDsl, params, calleeDsl, callee });
@@ -888,6 +943,10 @@ export default class Customize {
        * 下面的 switch 就是针对这种情况的特殊处理
        */
       try {
+        if (isCanvasContextApi) {
+          // CanvasContext 下的方法只能这样调用
+          return parentCallee[lastMember](...params);
+        }
         switch(lastMember) {
           case 'call':
             return parentCallee.call(...params);
@@ -899,13 +958,13 @@ export default class Customize {
             return callee(...params);
         }
       } catch(err) {
-        // console.log('lastMember', lastMember);
-        // console.log('this.varScope:', this.varScope);
-        // console.log('params', params);
-        // console.log('paramsDsl', paramsDsl);
-        // console.log('calleeDsl:', calleeDsl);
-        // console.log('callee:', callee);
-        // console.warn(err);
+        console.log('lastMember', lastMember);
+        console.log('this.varScope:', this.varScope);
+        console.log('params', params);
+        console.log('paramsDsl', paramsDsl);
+        console.log('calleeDsl:', calleeDsl);
+        console.log('callee:', callee);
+        console.warn(err);
         throw err;
       }
     }
