@@ -751,7 +751,7 @@ export default class Customize {
     isDeclaration = false
   ) {
     const parentVarScope = this.varScope;
-    const anonymousFn = function () {
+    function anonymousFn () {
       const customize = new Customize(parentVarScope);
       // 挂载 isBlockStatement
       Object.assign(customize.varScope, {  __isBlockStatement__: isBlockStatement });
@@ -850,8 +850,11 @@ export default class Customize {
         customize.varScope.__returnObject__ = null;
       }
     };
+    if (functionName) {
+      // 添加函数名
+      Object.defineProperty(anonymousFn, 'name', {value: functionName, writable: false, configurable: true } );
+    }
     if (functionName && isDeclaration) {
-      // anonymousFn.name = functionName;
       // 有函数名
       this.var(functionName, {
         type: 'literal',
