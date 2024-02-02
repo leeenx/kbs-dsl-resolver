@@ -2,7 +2,7 @@
 import * as _ from 'lodash-es';
 import Customize from './customize';
 
-const types = ['literal', 'arguments', 'array-literal', 'object-literal', 'call-function', 'customize-function', 'declare-function', 'component', 'this', 'prefix-vars', 'c', 'f', 'd', 'a', 'o', 'l', 't', 'p'];
+const types = ['literal', 'arguments', 'array-literal', 'object-literal', 'call-function', 'customize-function', 'declare-function', 'component', 'this', 'prefix-vars', 'member', 'c', 'f', 'd', 'a', 'o', 'l', 't', 'p', 'm'];
 type Type = typeof types[number];
 
 export interface DslJson {
@@ -22,11 +22,15 @@ export interface DslJson {
 const dslResolve = (
   dslJson: DslJson | string,
   customize?: Customize,
-  isLoopContentStatement: boolean = false
+  isLoopContentStatement: boolean = false,
+  preResolve: boolean = false
 ) => {
   // 变量的上下文也在这里
   if (_.isObject(dslJson)) {
-    customize = customize || new Customize();
+    if (!customize) {
+      customize = new Customize();
+      customize.varScope.__preResolve__ = preResolve;
+    }
     const {
       t,
       type = t
@@ -35,11 +39,12 @@ const dslResolve = (
       (!_.has(dslJson, 'type') && !_.has(dslJson, 't')) || // 直接的 type 属性不存在
       !types.includes(type!)
     ) {
+      // memberExpression
       if (_.isArray(dslJson)) {
-        return customize.getValue(dslJson);
+        return customize.getValue(dslJson as DslJson[]);
       }
       // 直接返回
-      return dslJson as any;
+      return () => dslJson as any;
     }
     // 过滤 callFun 的对象入参
     if(['f', 'component', 'customize-function'].includes(type!)) {
@@ -49,7 +54,7 @@ const dslResolve = (
         (type !== 'f' && (!json.params || !json.body))
       ) {
         // 直接返回
-        return dslJson as any;
+        return () => dslJson as any;
       }
     }
     const {
@@ -66,8 +71,10 @@ const dslResolve = (
       // 变量上提
       case 'prefix-vars':
       case 'p':
-        customize.batchVar(value.map(key => ({ key })));
-        break;
+        return customize.batchVar(value.map(key => ({ key })));
+      case 'member':
+      case 'm':
+        return customize.getValue(value);
       /**
        * 直接调用内置解析函数
        * 当 name 为 callFun 时，才是逻辑上的调用函数
@@ -107,21 +114,10 @@ const dslResolve = (
         return customize.createFunction(params, body, name, false, false, false, true);
       case 'a':
       case 'array-literal':
-        return ([...value]).map((item: any) => dslResolve(item, customize));
-      case 'arguments':
-        return value;
+        return customize.getArrayLiteral(value);
       case 'o':
       case 'object-literal': {
-        const obj: any = {};
-        value.forEach(({
-          k,
-          key = k,
-          v,
-          value: valueDsl = v
-        }) => {
-          obj[key] = dslResolve(valueDsl, customize);
-        });
-        return obj;
+        return customize.getObjectLiteral(value);
       }
       // this 指针
       case 't':
@@ -130,7 +126,7 @@ const dslResolve = (
       // 普通字面量
       case 'l':
       case 'literal':
-        return value;
+        return customize.getLiteral(value);
       default:
         
     }

@@ -22,9 +22,10 @@ export default function stdResolve(
   const moduleScope = createModuleScope(nameSpace);
   const dslList = Array.isArray(dslJson) ? dslJson : [dslJson];
   moduleScope.varScope.__isHotUpdating__ = hotUpdateEnabel;
-  dslList.forEach(dsl => {
+  dslList.forEach(item => {
     // @ts-ignore
-    dslResolve(dsl, moduleScope);
+    const resolveItem = dslResolve(item, moduleScope);
+    resolveItem();
   });
   moduleScope.varScope.__isHotUpdating__ = false;
   return moduleScope.varScope.module.exports;

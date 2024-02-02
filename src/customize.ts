@@ -190,12 +190,10 @@ export default class Customize {
       ['getConst', 'gC'],
       ['getLet', 'gL'],
       ['getVar', 'gVar'],
-      ['getFunction', 'gF'],
       ['getArg', 'gA'],
       ['getObjMember', 'gOM'],
       ['getOrAssignOrDissocPath', 'gADP'],
       ['assignLet', 'aL'],
-      ['getResultByOperator', 'gRBO'],
       ['setLet', 'sL'],
       ['callReturn', 'cR'],
       ['callBreak', 'cBr'],
@@ -209,8 +207,6 @@ export default class Customize {
       ['callDoWhile', 'cDW'],
       ['callFor', 'cF'],
       ['callForIn', 'cFI'],
-      ['destroy', 'd'],
-      ['delete', 'del'],
       ['createFunction', 'f'],
       ['callBlockStatement', 'cBS'],
       ['callIfElse', 'cIE'],
@@ -237,15 +233,20 @@ export default class Customize {
     __label__: '' // 当前作用域的标记
   };
   // 常量
-  const(key: string, valueDsl: DslJson | DslJson[]) {
-    if (!this.varScope.__isHotUpdating__ && _.has(this.varScope, key)) {
-      throw new Error(`Uncaught TypeError: Assignment to constant variable. ${key}`);
-    }
-    Object.defineProperty(this.varScope, key, {
-      value: this.getValue(valueDsl),
-      writable: true, // 小程序环境中：writable 取 false，那么 enumerable 也一定是 false
-      enumerable: true
-    });
+  const(key: string, valueDsl?: DslJson | DslJson[]) {
+    const preGetValue = valueDsl ? this.getValue(valueDsl) : _.noop;
+    return (realValue: any) => {
+      if (!this.varScope.__isHotUpdating__ && _.has(this.varScope, key)) {
+        throw new Error(`Uncaught TypeError: Assignment to constant variable. ${key}`);
+      }
+      const value = valueDsl ? preGetValue() : realValue;
+      console.log('-------->2', this.varScope);
+      Object.defineProperty(this.varScope, key, {
+        value,
+        writable: true, // 小程序环境中：writable 取 false，那么 enumerable 也一定是 false
+        enumerable: true
+      });
+    };
   }
   // 获取值
   getValue(valueDsl: DslJson | DslJson[], ignoreBind = true) {
@@ -261,83 +262,98 @@ export default class Customize {
   let(key: string, valueDsl?: DslJson | DslJson[], isVarKind: boolean = false, onlyDeclare: boolean = false) {
     let varScope = this.varScope;
     if (isVarKind) {
-      while (varScope.__isBlockStatement__) {
-        // 块级作用域，var 声明必须上提作用域
-        varScope = varScope.__parentVarScope__;
+      if (!varScope.__raiseVarScope__) {
+        // 没有定位到作用域，通过循环找到
+        let tmp = 0;
+        while (varScope.__isBlockStatement__) {
+          // 块级作用域，var 声明必须上提作用域
+          varScope.__raiseVarScope__ = varScope.__parentVarScope__;
+          if (++tmp === 100) throw new Error('作用域死循环');
+        }
       }
+      if (varScope.__raiseVarScope__) varScope = varScope.__raiseVarScope__;
     }
     if (_.has(varScope, key)) {
       if (isVarKind) {
-        if (!onlyDeclare) {
-          varScope[key] = valueDsl && this.getValue(valueDsl);
+        if (!onlyDeclare && valueDsl) {
+          const preGetValue = valueDsl ? this.getValue(valueDsl) : _.noop;
+          return (realValue?: any) => {
+            varScope[key] = valueDsl ? preGetValue() : realValue;
+          };
         }
       } else {
-        const errMsg = `Uncaught SyntaxError: Identifier "${key}" has already been declared`;
-        throw new Error(errMsg);
+        return () => {
+          const errMsg = `Uncaught SyntaxError: Identifier "${key}" has already been declared`;
+          throw new Error(errMsg);
+        };
       }
     } else {
+      // 预解析的关键，声明变量打上
       Object.defineProperty(varScope, key, {
-        value: valueDsl && this.getValue(valueDsl),
         writable: true,
         enumerable: true
       });
+      const preGetValue = valueDsl ? this.getValue(valueDsl) : _.noop;
+      if (!_.isFunction(preGetValue)) {
+        console.log('========let error', {valueDsl, preGetValue});
+      }
+      return () => {
+        varScope[key] = preGetValue();
+      };
     }
+    // 默认为空
+    return _.noop;
   }
   // var
-  var(key: string, valueDsl: DslJson | DslJson[], onlyDeclare: boolean = false) {
-    this.let(key, valueDsl, true, onlyDeclare);
+  var(key: string, valueDsl?: DslJson | DslJson[], onlyDeclare: boolean = false) {
+    return this.let(key, valueDsl, true, onlyDeclare);
   }
   // 批量
   batchConst(list: { key: string, value: any, k?: string, v?: any }[]) {
-    list.forEach(({ key, value, k, v }) => key ? this.const(key, value) : this.const(k!, v))
+    const constCalls: any[] = list.map(({ key, value, k, v }) => key ? this.const(key, value) : this.const(k!, v));
+    return () => constCalls.forEach(constCall => constCall());
   }
   batchVar(list: { key: string, value: any, k?: string, v?: any }[]) {
-    list.forEach((item) => {
+    const varCalls = list.map((item) => {
       const { key, value, k, v } = item;
       const onlyDeclare = key ? !_.has(item, 'value') : !_.has(item, 'v');
       return key ? this.var(key, value, onlyDeclare) : this.var(k!, v, onlyDeclare)
-    })
+    });
+    return () => varCalls.forEach(varCall => varCall());
   }
   batchLet(list: { key: string, value: any }[]) {
-    this.batchVar(list);
+    return this.batchVar(list);
   }
   batchDeclaration(kind: 'var' | 'let' | 'const', list: { key: string, value: any }[]) {
     switch(kind) {
       case "var":
-        this.batchVar(list);
-        break;
+        return this.batchVar(list);
       case "let":
-        this.batchLet(list);
-        break;
+        return this.batchLet(list);
       case "const":
-        this.batchConst(list);
+        return this.batchConst(list);
     }
   }
   // 取值
   getConst(key: string) {
-    let value:any = this.varScope[key];
+    let varScope = this.varScope;
     if (!_.has(this.varScope, key)) {
       // 当前作用域找不到，往上找
-      let parent = this.varScope.__parentVarScope__;
-      while(Boolean(parent)) {
-        if (_.has(parent, key)) {
-          value = parent[key];
+      varScope = this.varScope.__parentVarScope__;
+      while(Boolean(varScope)) {
+        if (_.has(varScope, key)) {
           break;
         }
-        parent = parent.__parentVarScope__;
+        varScope = varScope.__parentVarScope__;
       }
     }
-    return value;
+    return () => varScope?.[key];
   }
   getLet(key: string) {
     return this.getConst(key);
   }
   getVar(key: string) {
     return this.getConst(key);
-  }
-  getFunction(key: string, params?: any[]) {
-    const fun = this.getConst(key);
-    return fun?.(...(params || []));
   }
   // 获取形参 ---- 等同于 getLet
   getArg(key: string) {
@@ -356,137 +372,167 @@ export default class Customize {
     ignoreBind: boolean = true
   ) {
     if (!keyPathOfDsl.length) {
-      throw new Error(`赋值失败: keyPathOfDsl为空数组`);
+      return () => {
+        throw new Error(`赋值失败: keyPathOfDsl为空数组`);
+      };
     }
-    const keyPath = keyPathOfDsl.map((item, index) => {
-      const key = dslResolve(item, this);
-      if (index > 0 && _.isArray(key)) {
-        return this.getValue(key);
+    const keyPathCalls = keyPathOfDsl.map((item, index) => {
+      if (index > 0 && _.isArray(item)) {
+        return this.getValue(item);
       }
-      return key;
-    }) as string[];
+      if (_.isString(item) || _.isNumber(item)) return () => item;
+      const keyCall = dslResolve(item, this);
+      return keyCall;
+    }) as any[];
     // 表示对象的根名称
-    const [firstKey] = keyPath;
+    const [firstKeyCall] = keyPathCalls;
     const [firstDsl] = keyPathOfDsl;
     // 是否为 Identifier
     const isIdentifier = _.isString(firstDsl);
 
     if (!isIdentifier) {
       // 非 Identifier
-      keyPath.shift(); // 去除第一个元素
+      keyPathCalls.shift(); // 去除第一个元素
     }
-    const parentKeyPath = [...keyPath];
-    const lastKey = parentKeyPath.pop();
+    const parentKeyPathCalls = [...keyPathCalls];
+    const lastKeyCall = parentKeyPathCalls.pop();
 
-    // 目标作用域
-    let targetScope: any | null = null;
+    // 获取目标作用域
+    let getTargetScope: any | null = null;
     if (!isIdentifier) {
       // 根非 Identifier
-      targetScope = firstKey;
+      getTargetScope = firstKeyCall;
     } else {
+      const firstKey = firstKeyCall();
       if (_.hasIn(this.varScope, firstKey)) {
         // 当前作用域下
-        targetScope = this.varScope;
+        getTargetScope = () => this.varScope;
       } else {
         // 当前作用域找不到，往上找
         let parent = this.varScope.__parentVarScope__;
         while(Boolean(parent)) {
           if (_.hasIn(parent, firstKey)) {
             // 找到作用域
-            targetScope = parent;
+            getTargetScope = () => parent;
             break;
           }
           parent = parent.__parentVarScope__;
         }
       }
     }
-    if (targetScope !== null) {
-      const parent = parentKeyPath.length ? _.get(targetScope, parentKeyPath) : targetScope;
-      if (
-        type === 'assign' && (
-          !parentKeyPath.length || _.hasIn(targetScope, parentKeyPath)
-        )
-      ) {
-        // 执行赋值
-        const value = valueDsl && this.getValue(valueDsl);
-        const result = this.getResultByOperator(
-          _.get(targetScope, keyPath),
-          value,
-          operator
-        );
-        return parent[lastKey!] = result;
+    if (getTargetScope !== null) {
+      const getParent = (targetScope, parentKeyPath) => {
+        return parentKeyPathCalls.length ? _.get(targetScope, parentKeyPath) : targetScope;
+      };
+      const getParentKeyPath = () => {
+        return parentKeyPathCalls.map(item => item());
+      };
+      if (type === 'assign') {
+        console.log('=====================', JSON.stringify(valueDsl));
+        const preGetValue = valueDsl ? this.getValue(valueDsl) : _.noop;
+        console.log('---------------------');
+        const getResult = this.getResultByOperator(operator);
+        return (realValue?: any) => {
+          const targetScope = getTargetScope();
+          const parentKeyPath = getParentKeyPath();
+          if (!parentKeyPath.length || _.hasIn(targetScope, parentKeyPath)) {
+            // 执行赋值
+            const value = _.isUndefined(realValue) ? preGetValue() : realValue;
+            const lastKey = lastKeyCall();
+            const keyPath = [...parentKeyPath, lastKey];
+            const parent = getParent(targetScope, parentKeyPath);
+            const result = getResult(_.get(targetScope, keyPath), value);
+            return parent[lastKey!] = result;
+          }
+        };
       }
-      if (
-        type === 'dissocPath' &&
-        (
-          !parentKeyPath.length || _.hasIn(targetScope, parentKeyPath)
-        )
-      ) {
+      if (type === 'dissocPath') {
         // 删除指定属性
-        return delete parent[lastKey!];
+        return () => {
+          const targetScope = getTargetScope();
+          const parentKeyPath = getParentKeyPath();
+          const lastKey = lastKeyCall();
+          if (!parentKeyPath.length || _.hasIn(targetScope, parentKeyPath)) {
+            delete parent[lastKey!];
+          }
+        };
       }
       if (type === 'get') {
-        if (!keyPath.length) return targetScope;
-        if (_.hasIn(targetScope, keyPath)) {
-          // keyPath 找得到，返回结果
-          let result = _.get(targetScope, keyPath);
-          // 绑定 this 指针
-          if (
-            !ignoreBind &&
-            _.isFunction(result) &&
-            parent !== Function && // Function 不能被绑定
-            lastKey !== 'call' &&
-            lastKey !== 'bind' &&
-            lastKey !== 'apply'
-          ) {
-            result = result.bind(parent);
+        return () => {
+          const targetScope = getTargetScope();
+          const parentKeyPath = getParentKeyPath();
+          const lastKey = lastKeyCall();
+          const keyPath = [...parentKeyPath, lastKey];
+          const parent = getParent(targetScope, parentKeyPath);
+          if (!keyPath.length) return targetScope;
+          if (_.hasIn(targetScope, keyPath)) {
+            // keyPath 找得到，返回结果
+            let result = _.get(targetScope, keyPath);
+            // 绑定 this 指针
+            if (
+              !ignoreBind &&
+              _.isFunction(result) &&
+              parent !== Function && // Function 不能被绑定
+              lastKey !== 'call' &&
+              lastKey !== 'bind' &&
+              lastKey !== 'apply'
+            ) {
+              result = result.bind(parent);
+            }
+            return result;
           }
-          return result;
         }
       }
     } else {
       // 执行到这里，表示出错了
       if (type === 'assign') {
-        throw new Error(`赋值失败：keyPath - ${keyPath} 找不到`);
-      } else {
-        console.log('keyPathOfDsl', keyPathOfDsl);
-        throw new Error(`对象${parentKeyPath.join('.')}不存在成员：${lastKey}`);
+        const keyPath = keyPathCalls.map(keyCall => keyCall());
+        return () => {
+          throw new Error(`赋值失败：keyPath - ${keyPath} 找不到`);
+        };
       }
+      const parentKeyPath = parentKeyPathCalls.map(parentKeyCall => parentKeyCall());
+      return () => {
+        console.log('keyPathOfDsl', {keyPathOfDsl, lastKeyCall, isIdentifier});
+        const lastKey = lastKeyCall();
+        throw new Error(`对象${parentKeyPath.join('.')}不存在成员：${lastKey}`);
+      };
     }
   }
   assignLet(keyPathOfDsl: (string | DslJson)[], valueDsl?: DslJson | DslJson[], operator?: AssignmentOperator) {
     return this.getOrAssignOrDissocPath(keyPathOfDsl, valueDsl, operator, 'assign');
   }
   // 按操作符赋值
-  getResultByOperator(leftValue: any, rightValue: any, operator: AssignmentOperator = '=') {
+  getResultByOperator(operator: AssignmentOperator = '=') {
     switch(operator) {
       case "=":
-        return rightValue;
+        return (leftValue: any, rightValue: any) => rightValue;
       case "+=":
-        return leftValue + rightValue;
+        return (leftValue: any, rightValue: any) => leftValue + rightValue;
       case "-=":
-        return leftValue - rightValue;
+        return (leftValue: any, rightValue: any) => leftValue - rightValue;
       case "*=":
-        return leftValue * rightValue;
+        return (leftValue: any, rightValue: any) => leftValue * rightValue;
       case "/=":
-        return leftValue / rightValue;
+        return (leftValue: any, rightValue: any) => leftValue / rightValue;
       case "%=":
-        return leftValue % rightValue;
+        return (leftValue: any, rightValue: any) => leftValue % rightValue;
       case "<<=":
-        return leftValue << rightValue;
+        return (leftValue: any, rightValue: any) => leftValue << rightValue;
       case ">>=":
-        return leftValue >> rightValue;
+        return (leftValue: any, rightValue: any) => leftValue >> rightValue;
       case ">>>=":
-        return leftValue >>> rightValue;
+        return (leftValue: any, rightValue: any) => leftValue >>> rightValue;
       case "%=":
-        return leftValue % rightValue;
+        return (leftValue: any, rightValue: any) => leftValue % rightValue;
       case "|=":
-        return leftValue | rightValue;
+        return (leftValue: any, rightValue: any) => leftValue | rightValue;
       case "^=":
-        return leftValue ^ rightValue;
+        return (leftValue: any, rightValue: any) => leftValue ^ rightValue;
       case "&=":
-        return leftValue & rightValue;
+        return (leftValue: any, rightValue: any) => leftValue & rightValue;
       default:
+        return _.noop;
     }
   }
   setLet(key: string, value?: any) {
@@ -495,8 +541,11 @@ export default class Customize {
   // 返回值
   callReturn(dslJson: DslJson | DslJson[]) {
     // 标记已经返回
-    this.varScope.__returnObject__ = {
-      result: this.getValue(dslJson)
+    const preGetValue = this.getValue(dslJson);
+    return () => {
+      this.varScope.__returnObject__ = {
+        result: preGetValue()
+      }
     };
   }
   // break
@@ -504,20 +553,26 @@ export default class Customize {
     if (label) {
       if (!this.varScope.__labels__.includes(label)) {
         // 表示找不到对应的 label
-        throw new Error(`Uncaught SyntaxError: Undefined label '${label}'`);
+        return () => {
+          throw new Error(`Uncaught SyntaxError: Undefined label '${label}'`);
+        };
       }
-      let varScope = this.varScope;
-      while(varScope) {
-        // 向上传递 break
-        varScope.__isBreak__ = true;
-        if (varScope.__label__ === label) {
-          // 到达标记语句，停止上升
-          break;
+      return () => {
+        let varScope = this.varScope;
+        while(varScope) {
+          // 向上传递 break
+          varScope.__isBreak__ = true;
+          if (varScope.__label__ === label) {
+            // 到达标记语句，停止上升
+            break;
+          }
+          varScope = varScope.__parentVarScope__;
         }
-        varScope = varScope.__parentVarScope__;
-      }
+      };
     } else {
-      this.varScope.__isBreak__ = true;
+      return () => {
+        this.varScope.__isBreak__ = true;
+      };
     }
   }
   // continute
@@ -525,148 +580,173 @@ export default class Customize {
     if (label) {
       if (!this.varScope.__labels__.includes(label)) {
         // 表示找不到对应的 label
-        throw new Error(`Uncaught SyntaxError: Undefined label '${label}'`);
+        return () => {
+          throw new Error(`Uncaught SyntaxError: Undefined label '${label}'`);
+        };
       }
-      let varScope = this.varScope;
-      while(varScope) {
-        // 向上传递 break
-        varScope.__isContinute__ = true;
-        if (varScope.__label__ === label) {
-          // 到达标记语句，停止上升
-          break;
+      return () => {
+        let varScope = this.varScope;
+        while(varScope) {
+          // 向上传递 break
+          varScope.__isContinute__ = true;
+          if (varScope.__label__ === label) {
+            // 到达标记语句，停止上升
+            break;
+          }
+          varScope = this.varScope.__parentVarScope__;
         }
-        varScope = this.varScope.__parentVarScope__;
-      }
+      };
     } else {
-      this.varScope.__isContinute__ = true;
+      return () => {
+        this.varScope.__isContinute__ = true;
+      };
     }
   }
   // 一元运算
   callUnary(operator: UnaryOperator, valueDsl: DslJson | DslJson[]) {
     const isMemberExpression = _.isArray(valueDsl);
-    const value = this.getValue(valueDsl);
+    const preGetValue = this.getValue(valueDsl);
     switch(operator) {
       case "-":
-        return -value;
+        return () => -preGetValue();
       case "+":
-        return +value;
+        return () => +preGetValue();
       case "!":
-        return !value;
+        return () => !preGetValue();
       case "~":
-        return ~value;
+        return () => ~preGetValue();
       case "typeof":
-        return typeof value;
+        return () => typeof preGetValue();
       case "void":
-        return void value;
+        return () => void preGetValue();
       case "delete":
         if (isMemberExpression) {
-          return this.getOrAssignOrDissocPath(valueDsl as DslJson[], undefined, undefined, 'dissocPath');
+          return () => this.getOrAssignOrDissocPath(valueDsl as DslJson[], undefined, undefined, 'dissocPath');
         }
         // 不会报错，但是不会删除成员
-        return false;
+        return () => false;
       default:
-        throw new Error(`未知的一元运算符：${operator}`);
+        return () => {
+          throw new Error(`未知的一元运算符：${operator}`);
+        };
     }
   }
   // 二元运算
   callBinary(leftDsl: DslJson | DslJson[], operator: BinaryOperator, rightDsl: DslJson | DslJson[]) {
-    const left = this.getValue(leftDsl);
-    const right = this.getValue(rightDsl);
+    const getLeft = this.getValue(leftDsl);
+    const getRight = this.getValue(rightDsl);
     switch(operator) {
       case "==":
-        return left == right;
+        return () => getLeft() == getRight();
       case "!=":
-        return left != right;
+        return () => getLeft() != getRight();
       case "===":
-        return left === right;
+        return () => getLeft() === getRight();
       case "!==":
-        return left !== right;
+        return () => getLeft() !== getRight();
       case "<":
-        return left < right;
+        return () => getLeft() < getRight();
       case "<=":
-        return left <= right;
+        return () => getLeft() <= getRight();
       case ">":
-        return left > right;
+        return () => getLeft() > getRight();
       case ">=":
-        return left >= right;
+        return () => getLeft() >= getRight();
       case "<<":
-        return left << right;
+        return () => getLeft() << getRight();
       case ">>":
-        return left >> right;
+        return () => getLeft() >> getRight();
       case ">>>":
-        return left >>> right;
+        return () => getLeft() >>> getRight();
       case "+":
-        return left + right;
+        return () => getLeft() + getRight();
       case "-":
-        return left - right;
+        return () => getLeft() - getRight();
       case "*":
-        return left * right;
+        return () => getLeft() * getRight();
       case "/":
-        return left / right;
+        return () => getLeft() / getRight();
       case "%":
-        return left % right;
+        return () => getLeft() % getRight();
       case "|":
-        return left | right;
+        return () => getLeft() | getRight();
       case "^":
-        return left ^ right;
+        return () => getLeft() ^ getRight();
       case "&":
-        return left & right;
+        return () => getLeft() & getRight();
       case "in":
-        return left in right;
+        return () => getLeft() in getRight();
       case "instanceof":
-        return left instanceof right;
+        return () => getLeft() instanceof getRight();
       default:
-        throw new Error(`未知的二元运算符：${operator}`);
+        return () => {
+          throw new Error(`未知的二元运算符：${operator}`);
+        };
     }
   }
   // 更新
   callUpdate(operator: UpdateOperator, argument: DslJson | DslJson[], prefix: boolean) {
     const keyPathDsl = (_.isArray(argument) ? argument : [argument]) as DslJson[];
-    const oldValue = this.getObjMember(keyPathDsl) as number;
-    this.assignLet(keyPathDsl, 1 as any, operator === '++' ? '+=' : '-=');
-    const getNewValue = () => this.getObjMember(keyPathDsl) as number;
-    return prefix ? getNewValue() : oldValue;
+    const preGetValue: any = this.getObjMember(keyPathDsl);
+    return () => {
+      const oldValue = preGetValue();
+      this.assignLet(keyPathDsl, 1 as any, operator === '++' ? '+=' : '-=');
+      return prefix ? preGetValue() : oldValue;
+    };
   }
   // 逻辑运算
   callLogical(leftDsl: DslJson | DslJson[], operator: LogicalOperator, rightDsl: DslJson | DslJson[]) {
+    const getLeft = this.getValue(leftDsl);
+    const getRight = this.getValue(rightDsl);
     switch(operator) {
       case "||":
-        return this.getValue(leftDsl) || this.getValue(rightDsl);
+        return () => getLeft() || getRight();
       case "&&":
-        return this.getValue(leftDsl) && this.getValue(rightDsl);
+        return () => getLeft() && getRight();
     }
   }
   // 抛锚
   callThrow(argument: DslJson | DslJson[]) {
-    throw this.getValue(argument);
+    const preGetValue = this.getValue(argument);
+    return () => {
+      throw preGetValue();
+    };
   }
   // while
   callWhile(test: DslJson | DslJson[], body: DslJson) {
-    while(this.getValue(test)) {
-      // 内容区是一个独立的子作用域
-      const contentThis = this.createContent();
-      dslResolve(body, contentThis, true);
-      if (contentThis.varScope.__isBreak__) {
-        contentThis.varScope.__isBreak__ = false;
-        break;
+    const testCall = this.getValue(test);
+    // 内容区是一个独立的子作用域
+    const contentThis = this.createContent();
+    const resolveCall = dslResolve(body, contentThis, true);
+    return () => {
+      while(testCall()) {
+        resolveCall();
+        if (contentThis.varScope.__isBreak__) {
+          contentThis.varScope.__isBreak__ = false;
+          break;
+        }
+        if (contentThis.varScope.__isContinute__) {
+          contentThis.varScope.__isContinute__ = false;
+          continue;
+        }
       }
-      if (contentThis.varScope.__isContinute__) {
-        contentThis.varScope.__isContinute__ = false;
-        continue;
-      }
-    }
+    };
   }
 
   // doWhile
   callDoWhile(test: DslJson | DslJson[], body: DslJson) {
     // 内容区是一个独立的子作用域
     const contentThis = this.createContent();
-    dslResolve(body, contentThis, true);
-    if (contentThis.varScope.__isBreak__) {
-      contentThis.varScope.__isBreak__ = false;
-    } else {
-      this.callWhile(test, body);
-    }
+    const resolveCall = dslResolve(body, contentThis, true);
+    const callWhile = this.callWhile(test, body);
+    return () => {
+      resolveCall();
+      if (contentThis.varScope.__isBreak__) {
+        contentThis.varScope.__isBreak__ = false;
+      } else {
+        callWhile();
+      }
+    };
   }
 
   // for
@@ -676,70 +756,64 @@ export default class Customize {
     update,
     body
   ) {
-    for(init && dslResolve(init, this); test ? this.getValue(test) : true; dslResolve(update, this)) {
-      // 内容区是一个独立的子作用域
-      const contentThis = this.createContent();
-      dslResolve(body, contentThis, true);
-      if (contentThis.varScope.__isBreak__) {
-        contentThis.varScope.__isBreak__ = false;
-        break;
+    const resolveInit = init ? dslResolve(init, this) : _.noop;
+    const resolveTest = test ? this.getValue(test) : () => true;
+    const resolveUpdate = dslResolve(update, this);
+    // 内容区是一个独立的子作用域
+    const contentThis = this.createContent();
+    const resolveBody = dslResolve(body, contentThis, true);
+    return () => {
+      for(resolveInit(); resolveTest(); resolveUpdate()) {
+        resolveBody();
+        if (contentThis.varScope.__isBreak__) {
+          contentThis.varScope.__isBreak__ = false;
+          break;
+        }
+        if (contentThis.varScope.__isContinute__) {
+          contentThis.varScope.__isContinute__ = false;
+          continue;
+        }
       }
-      if (contentThis.varScope.__isContinute__) {
-        contentThis.varScope.__isContinute__ = false;
-        continue;
-      }
-    }
+    };
   }
 
   // for...in
   callForIn(leftDsl: DslJson | DslJson[], rightDsl: DslJson | DslJson[], body: DslJson) {
-    const targetObj = this.getValue(rightDsl);
+    console.log('=======callForIn->>>>');
+    const getTargetObj = this.getValue(rightDsl);
+    console.log('=======callForIn->>>>1');
     const isMemberExpression = _.isArray(leftDsl);
-    for(const item in targetObj) {
-      // 内容区是一个独立的子作用域
-      const contentThis = this.createContent();
-      if (isMemberExpression) {
-        // 赋值表达式
-        this.assignLet(leftDsl as DslJson[], item as any);
-      } else if ((leftDsl as DslJson)?.value?.[1]?.[0]) {
-        // 声明语句
-        (leftDsl as DslJson).value[1][0].value = {
-          type: 'literal',
-          value: item
-        };
-        dslResolve(leftDsl as DslJson, this);
-      } else if ((leftDsl as DslJson)?.v?.[1]?.[0]) {
-        // 声明语句 ---- 压缩
-        (leftDsl as DslJson).v[1][0].v = {
-          t: 'l',
-          v: item
-        };
-        dslResolve(leftDsl as DslJson, this);
-      }
-      dslResolve(body, contentThis, true);
-      if (contentThis.varScope.__isBreak__) {
-        contentThis.varScope.__isBreak__ = false;
-        break;
-      }
-      if (contentThis.varScope.__isContinute__) {
-        contentThis.varScope.__isContinute__ = false;
-        continue;
-      }
+    let resolveLeft: any = _.noop;
+    if (isMemberExpression) {
+      // 赋值表达式
+      resolveLeft = this.assignLet(leftDsl as DslJson[]);
+    } else if ((leftDsl as DslJson)?.value?.[1]?.[0]) {
+      // 声明语句
+      console.log('=======callForIn->>>>2', JSON.stringify(leftDsl));
+      resolveLeft = dslResolve(leftDsl as DslJson, this);
     }
-  }
-
-  // 销毁
-  destroy() {
-    this.varScope = {
-      __returnObject__: null,
-      __isBreak__: false,
-      __isContinute__: false
+    console.log('=======callForIn->>>>3');
+    // 内容区是一个独立的子作用域
+    const contentThis = this.createContent();
+    const resolveBody = dslResolve(body, contentThis, true);
+    console.log('-------callForIn->>>>');
+    return () => {
+      const targetObj = getTargetObj();
+      for(const item in targetObj) {
+        resolveLeft(item);
+        resolveBody();
+        if (contentThis.varScope.__isBreak__) {
+          contentThis.varScope.__isBreak__ = false;
+          break;
+        }
+        if (contentThis.varScope.__isContinute__) {
+          contentThis.varScope.__isContinute__ = false;
+          continue;
+        }
+      }
     };
   }
-  // 删除
-  delete(key: string, source: any = this.varScope) {
-    delete source[key];
-  }
+
   // 创建拟函数
   createFunction(
     params: string[],
@@ -751,38 +825,62 @@ export default class Customize {
     isDeclaration = false
   ) {
     const parentVarScope = this.varScope;
-    function anonymousFn () {
-      const customize = new Customize(parentVarScope);
-      // 挂载 isBlockStatement
-      Object.assign(customize.varScope, {  __isBlockStatement__: isBlockStatement });
-      if (functionName) {
-        Object.assign(customize.varScope, { [functionName]: anonymousFn });
-      }
-      const args = arguments;
-      if (!isBlockStatement) {
-        // 在函数上下文挂载 arguments
-        customize.const('arguments', {
-          type: 'arguments',
-          value: arguments
-        });
-        // 在函数上下文中挂载 this
-        // @ts-ignore
-        customize.const('this', this || globalScope);
-      }
-      params.forEach((name, index) => {
+    // 预解析使用的 customize
+    const customize = new Customize(parentVarScope);
+    // 挂载 isBlockStatement
+    Object.assign(customize.varScope, {  __isBlockStatement__: isBlockStatement });
+
+    let setArguments: any = _.noop;
+    let setThis: any = _.noop;
+
+    // 初始化实参
+    if (!isBlockStatement) {
+      // 在函数上下文挂载 arguments，但是不赋值
+      setArguments = customize.var('arguments');
+      // 在函数上下文中挂载 this，但是不赋值
+      setThis = customize.var('this');
+    }
+
+    // 初始化形参
+    const initParams = (() => {
+      const paramItemInitList = params.map((name, index) => {
         /**
          * 形参用 var 不用 const & let
          * 值必须使用 DSL 格式
          */
-        customize.var(name!, {
-          type: 'literal',
-          value: args[index]
+        return customize.var(name!, {
+          type: 'member',
+          value: ['arguments', index]
         });
       });
+      return () => {
+        paramItemInitList.forEach(itemInit => itemInit());
+      };
+    })();
+
+    // body 预解析
+    const lines = body.map(item => {
+      if (!item) return _.noop;
+      return dslResolve(item, customize);
+    });
+
+    // 通用作用域
+    const commonVarScope = customize.varScope;
+
+    function anonymousFn () {
+      // 重置 varScope
+      Object.assign(customize.varScope, commonVarScope);
+      if (!isBlockStatement) {
+        // 在函数上下文挂载 arguments
+        setArguments(arguments);
+        // 在函数上下文中挂载 this
+        setThis(this || globalScope);
+      }
+      initParams();
+
       // 直接返回
-      body.some(item => {
-        if (!item) return false;
-        dslResolve(item, customize);
+      lines.some(execLine => {
+        execLine();
         const returnObject = customize.varScope.__returnObject__;
         const varScope = customize.varScope;
         if (returnObject) { // 表示的返回
@@ -850,16 +948,20 @@ export default class Customize {
         customize.varScope.__returnObject__ = null;
       }
     };
+
     if (functionName) {
+      Object.assign(customize.varScope, { [functionName]: anonymousFn });
       // 添加函数名
       Object.defineProperty(anonymousFn, 'name', {value: functionName, writable: false, configurable: true } );
     }
     if (functionName && isDeclaration) {
       // 有函数名
-      this.var(functionName, {
+      const setFunctionName = this.var(functionName, {
         type: 'literal',
         value: anonymousFn
       });
+      // 立即设置函数名
+      setFunctionName();
     }
     return anonymousFn;
   }
@@ -877,20 +979,26 @@ export default class Customize {
   }
   // ifElse 函数改造
   callIfElse(conditionDsl: DslJson | DslJson[], onTrue: DslJson, onFail: DslJson) {
-    if (this.getValue(conditionDsl)) {
-      dslResolve(onTrue, this);
-    } else {
-      dslResolve(onFail, this);
-    }
+    const getCondition = this.getValue(conditionDsl);
+    const resolveTrue = dslResolve(onTrue, this);
+    const resolveFail = dslResolve(onFail, this);
+    return () => {
+      getCondition() ? resolveTrue() : resolveFail();
+    };
   }
   // 三元运算
   callConditional(conditionDsl: DslJson | DslJson[], onTrueDsl: DslJson, onFailDsl: DslJson) {
-    const condition = this.getValue(conditionDsl);
-    return condition ? this.getValue(onTrueDsl) : this.getValue(onFailDsl);
+    const getCondition = this.getValue(conditionDsl);
+    const getTrue = this.getValue(onTrueDsl);
+    const getFail = this.getValue(onFailDsl);
+    return () => {
+      const condition = getCondition();
+      return condition ? getTrue() : getFail();
+    };
   }
   // new RegExp
   getRegExp(pattern: string, modifiers: string) {
-    return new RegExp(pattern, modifiers);
+    return () => new RegExp(pattern, modifiers);
   }
   // new Class
   newClass(calleeDsl: DslJson | DslJson[], paramsDsl?: DslJson[]) {
@@ -898,149 +1006,212 @@ export default class Customize {
   }
   // 调用方法
   callFun(calleeDsl: DslJson | DslJson[], paramsDsl?: DslJson[], isClass = false) {
-    let lastMember: string = '';
-    // 需要判断 this 指针
-    const callee = this.getValue(calleeDsl, false);
-    let parentCallee: any;
-    let isCanvasContextApi = false;
-    if (_.isArray(calleeDsl) && calleeDsl.length > 1) {
-      const lastIndex = calleeDsl.length - 1;
-      lastMember = calleeDsl[lastIndex] as string;
-      if (!callee) {
+    const getCallee = this.getValue(calleeDsl, false);
+    let getParentCallee: any = _.noop;
+    const dslLen = (calleeDsl as DslJson[]).length;
+    const lastIndex = dslLen - 1;
+    const lastMember: string = calleeDsl[lastIndex] as string;
+    const isCanvasContextApi = canvasContextApis.includes(lastMember);
+
+    if (_.isArray(calleeDsl) && dslLen > 1) {
+      const parentCalleeDsl = [...(calleeDsl as DslJson[])];
+      parentCalleeDsl.pop();
+      getParentCallee = this.getOrAssignOrDissocPath(parentCalleeDsl);
+    }
+
+    let getParams = () => [] as any;
+    if (paramsDsl?.length) {
+      // 表示有入参
+      const paramItems = paramsDsl.map(item => this.getValue(item));
+      getParams = () => paramItems.map(getItemValue => getItemValue());
+    }
+
+    const getFunInfos = () => {
+      const callee = getCallee();
+      const parentCallee = getParentCallee();
+      if(!callee) {
         console.log('callee 不存在', {
           callee,
           calleeDsl,
           paramsDsl
         });
+        throw new Error(`callee 不存在`);
       }
-      if (
-        (!callee.prototype && ['call', 'apply', 'bind'].includes(lastMember))
-          || canvasContextApis.includes(lastMember)
-      ) {
-        // 保留关键字
-        const parentCalleeDsl = [...calleeDsl];
-        parentCalleeDsl.pop();
-        parentCallee = this.getOrAssignOrDissocPath(parentCalleeDsl);
-        // 表示是 CanvasContext
-        if (canvasContextApis.includes(lastMember)) {
-          isCanvasContextApi = parentCallee.canvas;
-          if (!isCanvasContextApi) lastMember = '';
-        }
-      } else {
-        lastMember = '';
-      }
+      const params = getParams();
+      return { callee, parentCallee, params };
+    };
+
+    const noFunction = (type) => {
+      console.log('type:', {
+        type,
+        calleeDsl,
+        paramsDsl
+      });
+      // 表示类型出错
+      throw new Error(`非函数类型： ${_.isArray(calleeDsl) ? (calleeDsl as DslJson[]).join('.') : ((calleeDsl as DslJson)?.value || (calleeDsl as DslJson)?.v)}`);
+    };
+
+    if (isClass) {
+      return () => {
+        const {callee, params} = getFunInfos();
+        if (_.isFunction(callee)) return new callee(...params);
+        noFunction('class');
+      };
     }
-    const params = (paramsDsl || []).map(item => {
-      return this.getValue(item);
-    });
-    if (_.isFunction(callee) || isCanvasContextApi) {
-      // 函数类型
-      if (isClass) {
-        // console.log('+++++', { paramsDsl, params, calleeDsl, callee });
-        return new callee(...params);
-      }
-      /**
-       * 微信小程序会自动转码
-       * 所有的函数/方法调用：fn() 都会被转码为 fn.apply
-       * 但是如果是保留关键字：call & apply 就会错，
-       * 下面的 switch 就是针对这种情况的特殊处理
-       */
-      try {
-        if (isCanvasContextApi) {
+
+    // canvasContextApi 特殊处理
+    if (isCanvasContextApi) {
+      return () => {
+        const {parentCallee, params} = getFunInfos();
+        // 判断是否为 canvas
+        if (parentCallee.canvas) {
           // CanvasContext 下的方法只能这样调用
           return parentCallee[lastMember](...params);
         }
-        switch(lastMember) {
-          case 'call':
-            return parentCallee.call(...params);
-          case 'apply':
-            return parentCallee.apply(...params);
-          case 'bind':
-            return parentCallee.bind(...params);
-          default:
-            return callee(...params);
-        }
-      } catch(err) {
-        console.log('lastMember', lastMember);
-        console.log('this.varScope:', this.varScope);
-        console.log('params', params);
-        console.log('paramsDsl', paramsDsl);
-        console.log('calleeDsl:', calleeDsl);
-        console.log('callee:', callee);
-        console.warn(err);
-        throw err;
-      }
+        noFunction('canvasContextApi');
+      };
     }
-    // console.log('----------------------------');
-    // console.log('this.varScope:', this.varScope);
-    // console.log('params', params);
-    // console.log('paramsDsl', paramsDsl);
-    // console.log('calleeDsl:', calleeDsl);
-    // console.log('callee:', callee);
-    // 表示类型出错
-    throw new Error(`非函数类型： ${_.isArray(calleeDsl) ? (calleeDsl as DslJson[]).join('.') : ((calleeDsl as DslJson)?.value || (calleeDsl as DslJson)?.v)}`);
+
+    switch(lastMember) {
+      case 'call':
+        return () => {
+          const {parentCallee, params} = getFunInfos();
+          if (!parentCallee.call.prototype && _.isFunction(parentCallee.call)) return parentCallee.call(...params);
+          noFunction('call');
+        };
+      case 'apply':
+        return () => {
+          const {parentCallee, params} = getFunInfos();
+          if (!parentCallee.apply.prototype && _.isFunction(parentCallee.apply)) return parentCallee.apply(...params);
+          noFunction('apply');
+        };
+      case 'bind':
+        return () => {
+          const {parentCallee, params} = getFunInfos();
+          if (!parentCallee.bind.prototype && _.isFunction(parentCallee.bind)) return parentCallee.bind(...params);
+          noFunction('bind');
+        };
+      default:
+        return () => {
+          const {callee, params} = getFunInfos();
+          if (_.isFunction(callee)) {
+            return callee(...params);
+          }
+          console.log('callee', callee);
+          noFunction('default');
+        };
+    }
   }
   // tryCatch 语句
   callTryCatch(block: DslJson, handler?: DslJson, finalizer?: DslJson) {
-    try {
-      dslResolve(block, this);
-    } catch (err) {
-      if (handler) {
-        const catchFun = dslResolve(handler, this);
-        const result = catchFun(err);
-        // catch 语句有返回值
-        if (result !== undefined) {
-          this.varScope.__returnObject__ = { result };
+    const resolveBlock = dslResolve(block, this);
+    const resolveHandler = handler ? dslResolve(handler, this) : _.noop;
+    const resolveFinalizer = finalizer ? dslResolve(finalizer, this): _.noop;
+    return () => {
+      try {
+        resolveBlock();
+      } catch (err) {
+        if (handler) {
+          const catchFun = resolveHandler();
+          const result = catchFun(err);
+          // catch 语句有返回值
+          if (result !== undefined) {
+            this.varScope.__returnObject__ = { result };
+          }
         }
+      } finally {
+        resolveFinalizer();
       }
-    } finally {
-      finalizer && dslResolve(finalizer, this);
-    }
+    };
   }
   // switch 语句
   callSwitch(discriminantDsl: DslJson | DslJson[], casesDsl: [DslJson | DslJson[], DslJson[]][]) {
-    const discriminant = this.getValue(discriminantDsl);
+    const getDiscriminant = this.getValue(discriminantDsl);
     // 所有的语句
-    const caseClauseList: DslJson[][] = [];
+    const caseClauseList: any[] = [];
     const testList: any[] = [];
     casesDsl.forEach(caseDsl => {
       const [testDsl, consequentDsl] = caseDsl;
       testList.push(this.getValue(testDsl));
-      caseClauseList.push(consequentDsl);
+      caseClauseList.push(this.callBlockStatement(consequentDsl, true));
     });
-    testList.some((test, index) => {
-      // test === null 表示 default 分支
-      if (test === null || test === discriminant) {
-        for(let i = index; i < testList.length; ++i) {
-          const body = caseClauseList[i];
-          // 创建一个 block 执行
-          this.callBlockStatement(body, true);
-          if (this.varScope.__isBreak__) {
-            // case 执行了 break
-            this.varScope.__isBreak__ = false;
-            break;
+
+    return () => {
+      const discriminant = getDiscriminant();
+      testList.some((getTest, index) => {
+        const test = getTest();
+        // test === null 表示 default 分支
+        if (test === null || test === discriminant) {
+          for(let i = index; i < testList.length; ++i) {
+            const caseClause = caseClauseList[i];
+            caseClause();
+            if (this.varScope.__isBreak__) {
+              // case 执行了 break
+              this.varScope.__isBreak__ = false;
+              break;
+            }
           }
+          return true;
         }
-        return true;
-      }
-      return false;
-    });
+        return false;
+      });
+    };
   }
   // sequence
   callSequence(dslList: DslJson[]) {
-    let result: any;
-    dslList.forEach(item => {
-      result = _.isArray(item) ? this.getObjMember(item as DslJson[]) : dslResolve(item, this);
-    });
-    return result;
+    const sequenceCalls = dslList.map(item => _.isArray(item) ? this.getObjMember(item as DslJson[]) : dslResolve(item, this));
+    return () => {
+      let result: any;
+      sequenceCalls.forEach(item => {
+        result = item();
+      });
+      return result;
+    };
   }
   // 添加标记
   addLabel(label: string) {
-    this.varScope.__tmpLabel__ = label;
+    return () => {
+      this.varScope.__tmpLabel__ = label;
+      return _.noop;
+    };
   }
   // 移除标记
   removeLabel() {
-    delete this.varScope.__tmpLabel__;
+    return () => {
+      delete this.varScope.__tmpLabel__;
+      return _.noop;
+    };
+  }
+  // 返回普通字面量
+  getLiteral(value: any) {
+    return () => value;
+  }
+  // 返回 object-literal
+  getObjectLiteral(value: any[]) {
+    const obj: any = {};
+    const getObjectList: Record<string, Function> = {};
+    value.forEach(({
+      k,
+      key = k,
+      v,
+      value: valueDsl = v
+    }) => {
+      getObjectList[key] = dslResolve(valueDsl, this);
+    });
+    return () => {
+      Object.entries(getObjectList).forEach(([key, getObject]) => {
+        obj[key] = getObject();
+      });
+      return obj;
+    };
+  }
+  // 返回 数组字面量
+  getArrayLiteral(value: any[]) {
+    const getArrayItems = ([...value]).map((item: any) => dslResolve(item, this));
+    return () => {
+      const array = getArrayItems.map(getArrayItem => getArrayItem());
+      return array;
+    };
   }
 }
 
