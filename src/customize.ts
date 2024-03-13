@@ -162,12 +162,17 @@ export const globalScope: Record<string, any> = {
   undefined
 };
 
+// 执行的作用域栈
+const execScopeStack: Customize["varScope"][] = [];
+
+let scopeId = 0;
+
 // 自定义的方法
 export default class Customize {
   constructor(parentVarScope?: any) {
     Object.defineProperty(this.varScope, '__parentVarScope__', {
       value: parentVarScope || globalScope,
-      writable: false,
+      writable: true
     });
     if (parentVarScope?.__labels__?.length) {
       this.varScope.__labels__.push(...parentVarScope.__labels__);
@@ -223,6 +228,8 @@ export default class Customize {
     resolveFunKeysMap.forEach(([key, sortKey]) => {
       this[sortKey] = this[key];
     });
+    // 生成 scopeId
+    this.varScope.$$__scope_id__$$ = ++scopeId;
   }
   varScope: any = {
     __returnObject__: null,
@@ -240,7 +247,6 @@ export default class Customize {
         throw new Error(`Uncaught TypeError: Assignment to constant variable. ${key}`);
       }
       const value = valueDsl ? preGetValue() : realValue;
-      console.log('-------->2', this.varScope);
       Object.defineProperty(this.varScope, key, {
         value,
         writable: true, // 小程序环境中：writable 取 false，那么 enumerable 也一定是 false
@@ -249,36 +255,58 @@ export default class Customize {
     };
   }
   // 获取值
-  getValue(valueDsl: DslJson | DslJson[], ignoreBind = true) {
+  getValue(valueDsl: DslJson | DslJson[], ignoreBind = true, returnParent?: Function) {
     const isMemberExpression = _.isArray(valueDsl);
-    return !isMemberExpression ? dslResolve(valueDsl as DslJson, this) : this.getObjMember(valueDsl as DslJson[], ignoreBind);
+    return !isMemberExpression ? dslResolve(valueDsl as DslJson, this) : this.getObjMember(valueDsl as DslJson[], ignoreBind, returnParent);
   }
-  createContent() {
-    const contentThis = new Customize(this.varScope);
-    Object.assign(contentThis.varScope, { __isBlockStatement__: true });
-    return contentThis;
+  updateVarScope(currentVarScope) {
+    const lastIndex = execScopeStack.length - 1;
+    if (lastIndex >= 0) {
+      // 表示有父级作用域
+      const parentScope = execScopeStack[lastIndex];
+      Object.defineProperty(currentVarScope, '__parentVarScope__', {
+        value: parentScope,
+        writable: true
+      });
+      return true;
+    }
+    return false;
   }
   // let
   let(key: string, valueDsl?: DslJson | DslJson[], isVarKind: boolean = false, onlyDeclare: boolean = false) {
     let varScope = this.varScope;
+    let raiseVarScopeKeyPath: string[] = [];
     if (isVarKind) {
-      if (!varScope.__raiseVarScope__) {
+      if (!varScope.__raiseVarScopeKeyPath__) {
         // 没有定位到作用域，通过循环找到
-        let tmp = 0;
         while (varScope.__isBlockStatement__) {
           // 块级作用域，var 声明必须上提作用域
-          varScope.__raiseVarScope__ = varScope.__parentVarScope__;
-          if (++tmp === 100) throw new Error('作用域死循环');
+          varScope = varScope.__parentVarScope__;
+          raiseVarScopeKeyPath.push('__parentVarScope__');
         }
+        // 标记有「上提作用域」
+        this.varScope.__raiseVarScopeKeyPath__ = raiseVarScopeKeyPath;
+      } else {
+        raiseVarScopeKeyPath = this.varScope.__raiseVarScopeKeyPath__
+        // 直接引用上提作用域
+        varScope = raiseVarScopeKeyPath.length ? _.get(this.varScope, raiseVarScopeKeyPath) : this.varScope;
       }
-      if (varScope.__raiseVarScope__) varScope = varScope.__raiseVarScope__;
     }
     if (_.has(varScope, key)) {
       if (isVarKind) {
         if (!onlyDeclare && valueDsl) {
           const preGetValue = valueDsl ? this.getValue(valueDsl) : _.noop;
+          if (!raiseVarScopeKeyPath.length) {
+            return (realValue?: any) => {
+              const currentVarScope = this.varScope;
+              const value = valueDsl ? preGetValue() : realValue;
+              currentVarScope[key] = value;
+            };
+          }
           return (realValue?: any) => {
-            varScope[key] = valueDsl ? preGetValue() : realValue;
+            const currentVarScope = _.get(this.varScope, raiseVarScopeKeyPath);
+            const value = valueDsl ? preGetValue() : realValue;
+            currentVarScope[key] = value;
           };
         }
       } else {
@@ -297,8 +325,16 @@ export default class Customize {
       if (!_.isFunction(preGetValue)) {
         console.log('========let error', {valueDsl, preGetValue});
       }
-      return () => {
-        varScope[key] = preGetValue();
+      if (!raiseVarScopeKeyPath.length) {
+        return (realValue?: any) => {
+          const value = valueDsl ? preGetValue() : realValue;
+          this.varScope[key] = value;
+        };
+      }
+      return (realValue?: any) => {
+        const currentVarScope = _.get(this.varScope, raiseVarScopeKeyPath);
+        const value = valueDsl ? preGetValue() : realValue;
+        currentVarScope[key] = value;
       };
     }
     // 默认为空
@@ -319,7 +355,7 @@ export default class Customize {
       const onlyDeclare = key ? !_.has(item, 'value') : !_.has(item, 'v');
       return key ? this.var(key, value, onlyDeclare) : this.var(k!, v, onlyDeclare)
     });
-    return () => varCalls.forEach(varCall => varCall());
+    return (realValue?: any) => varCalls.forEach(varCall => varCall(realValue));
   }
   batchLet(list: { key: string, value: any }[]) {
     return this.batchVar(list);
@@ -337,17 +373,25 @@ export default class Customize {
   // 取值
   getConst(key: string) {
     let varScope = this.varScope;
-    if (!_.has(this.varScope, key)) {
-      // 当前作用域找不到，往上找
-      varScope = this.varScope.__parentVarScope__;
-      while(Boolean(varScope)) {
-        if (_.has(varScope, key)) {
-          break;
-        }
-        varScope = varScope.__parentVarScope__;
+    const keyPath: string[] = [];
+    do {
+      if (_.has(varScope, key)) {
+        break;
       }
+      varScope = varScope.__parentVarScope__;
+      keyPath.push('__parentVarScope__');
+    } while(Boolean(varScope));
+
+    // 找不到作用域，直接返回 undefined
+    if (!varScope) {
+      return () => undefined;
     }
-    return () => varScope?.[key];
+
+    if(!keyPath.length) {
+      return () => this.varScope[key];
+    } else {
+      return () => _.get(this.varScope, keyPath)[key];
+    }
   }
   getLet(key: string) {
     return this.getConst(key);
@@ -360,16 +404,17 @@ export default class Customize {
     return this.getLet(key);
   }
   // 获取对象的成员
-  getObjMember(keyPathOfDsl: DslJson[], ignoreBind = true) {
-    return this.getOrAssignOrDissocPath(keyPathOfDsl, undefined, undefined, 'get', ignoreBind);
+  getObjMember(keyPathOfDsl: DslJson[], ignoreBind = true, returnParent?: Function) {
+    return this.getOrAssignOrDissocPath(keyPathOfDsl, undefined, undefined, 'get', ignoreBind, returnParent);
   }
   // 取值、赋值与删除对象成员 
   getOrAssignOrDissocPath(
     keyPathOfDsl: (string | DslJson)[],
     valueDsl?: DslJson | DslJson[],
     operator?: AssignmentOperator,
-    type: 'get' | 'assign' | 'dissocPath' = 'get',
-    ignoreBind: boolean = true
+    type: 'get' | 'parentAndLastKey' | 'assign' | 'dissocPath' = 'get',
+    ignoreBind: boolean = true,
+    returnParent?: Function
   ) {
     if (!keyPathOfDsl.length) {
       return () => {
@@ -381,8 +426,7 @@ export default class Customize {
         return this.getValue(item);
       }
       if (_.isString(item) || _.isNumber(item)) return () => item;
-      const keyCall = dslResolve(item, this);
-      return keyCall;
+      return dslResolve(item, this, false, false, `getOrAssignOrDissocPath | ${type} | ${JSON.stringify(keyPathOfDsl)}`);
     }) as any[];
     // 表示对象的根名称
     const [firstKeyCall] = keyPathCalls;
@@ -410,13 +454,17 @@ export default class Customize {
       } else {
         // 当前作用域找不到，往上找
         let parent = this.varScope.__parentVarScope__;
+        const parentKeyPath = ['__parentVarScope__'];
         while(Boolean(parent)) {
           if (_.hasIn(parent, firstKey)) {
             // 找到作用域
-            getTargetScope = () => parent;
+            getTargetScope = () => {
+              return _.get(this.varScope, parentKeyPath);
+            };
             break;
           }
           parent = parent.__parentVarScope__;
+          parentKeyPath.push('__parentVarScope__');
         }
       }
     }
@@ -427,44 +475,72 @@ export default class Customize {
       const getParentKeyPath = () => {
         return parentKeyPathCalls.map(item => item());
       };
+      if (_.isFunction(returnParent)) {
+        returnParent!(() => {
+          const targetScope = getTargetScope();
+          const parentKeyPath = getParentKeyPath();
+          const parent = getParent(targetScope, parentKeyPath);
+          return parent;
+        });
+      }
       if (type === 'assign') {
-        console.log('=====================', JSON.stringify(valueDsl));
         const preGetValue = valueDsl ? this.getValue(valueDsl) : _.noop;
-        console.log('---------------------');
         const getResult = this.getResultByOperator(operator);
         return (realValue?: any) => {
           const targetScope = getTargetScope();
           const parentKeyPath = getParentKeyPath();
           if (!parentKeyPath.length || _.hasIn(targetScope, parentKeyPath)) {
             // 执行赋值
-            const value = _.isUndefined(realValue) ? preGetValue() : realValue;
             const lastKey = lastKeyCall();
             const keyPath = [...parentKeyPath, lastKey];
             const parent = getParent(targetScope, parentKeyPath);
+            // 要在 lastKey 之后调用 preGetValue
+            const value = _.isUndefined(realValue) ? preGetValue() : realValue;
             const result = getResult(_.get(targetScope, keyPath), value);
             return parent[lastKey!] = result;
           }
         };
-      }
-      if (type === 'dissocPath') {
+      } else if (type === 'dissocPath') {
         // 删除指定属性
         return () => {
           const targetScope = getTargetScope();
           const parentKeyPath = getParentKeyPath();
+          const parent = getParent(targetScope, parentKeyPath);
           const lastKey = lastKeyCall();
-          if (!parentKeyPath.length || _.hasIn(targetScope, parentKeyPath)) {
+          if (!parentKeyPath.length || _.hasIn(parent, lastKey)) {
             delete parent[lastKey!];
           }
         };
-      }
-      if (type === 'get') {
+      } else if (type === 'get' || type === 'parentAndLastKey') {
+        if (keyPathOfDsl.length === 1) {
+          if (type === 'parentAndLastKey') {
+            return () => {
+              const targetScope = getTargetScope();
+              const lastKey = lastKeyCall();
+              return { parent: targetScope, lastKey };
+            };
+          }
+          return () => {
+            const targetScope = getTargetScope();
+            const lastKey = lastKeyCall();
+            return targetScope[lastKey];
+          };
+        }
+        if (type === 'parentAndLastKey') {
+          return () => {
+            const targetScope = getTargetScope();
+            const parentKeyPath = getParentKeyPath();
+            const lastKey = lastKeyCall();
+            const parent = getParent(targetScope, parentKeyPath);
+            return { parent, lastKey };
+          }
+        }
         return () => {
           const targetScope = getTargetScope();
           const parentKeyPath = getParentKeyPath();
           const lastKey = lastKeyCall();
           const keyPath = [...parentKeyPath, lastKey];
           const parent = getParent(targetScope, parentKeyPath);
-          if (!keyPath.length) return targetScope;
           if (_.hasIn(targetScope, keyPath)) {
             // keyPath 找得到，返回结果
             let result = _.get(targetScope, keyPath);
@@ -541,10 +617,11 @@ export default class Customize {
   // 返回值
   callReturn(dslJson: DslJson | DslJson[]) {
     // 标记已经返回
-    const preGetValue = this.getValue(dslJson);
+    const preGetValue = dslJson ? this.getValue(dslJson) : _.noop;
     return () => {
+      const result = preGetValue();
       this.varScope.__returnObject__ = {
-        result: preGetValue()
+        result
       }
     };
   }
@@ -621,7 +698,8 @@ export default class Customize {
         return () => void preGetValue();
       case "delete":
         if (isMemberExpression) {
-          return () => this.getOrAssignOrDissocPath(valueDsl as DslJson[], undefined, undefined, 'dissocPath');
+          const doDelete: any = this.getOrAssignOrDissocPath(valueDsl as DslJson[], undefined, undefined, 'dissocPath');
+          return () => doDelete();
         }
         // 不会报错，但是不会删除成员
         return () => false;
@@ -686,13 +764,17 @@ export default class Customize {
   }
   // 更新
   callUpdate(operator: UpdateOperator, argument: DslJson | DslJson[], prefix: boolean) {
+
     const keyPathDsl = (_.isArray(argument) ? argument : [argument]) as DslJson[];
-    const preGetValue: any = this.getObjMember(keyPathDsl);
+    const getParentAndLastKey: any = this.getOrAssignOrDissocPath(keyPathDsl, undefined, undefined, 'parentAndLastKey');
     return () => {
-      const oldValue = preGetValue();
-      this.assignLet(keyPathDsl, 1 as any, operator === '++' ? '+=' : '-=');
-      return prefix ? preGetValue() : oldValue;
+      const { parent, lastKey } = getParentAndLastKey();
+      if (prefix) {
+        return operator === '++' ? ++parent[lastKey] : --parent[lastKey];
+      }
+      return operator === '++' ? parent[lastKey]++ : parent[lastKey]--;
     };
+    
   }
   // 逻辑运算
   callLogical(leftDsl: DslJson | DslJson[], operator: LogicalOperator, rightDsl: DslJson | DslJson[]) {
@@ -715,18 +797,18 @@ export default class Customize {
   // while
   callWhile(test: DslJson | DslJson[], body: DslJson) {
     const testCall = this.getValue(test);
-    // 内容区是一个独立的子作用域
-    const contentThis = this.createContent();
-    const resolveCall = dslResolve(body, contentThis, true);
+    const resolveCall = body ? dslResolve(body, this, true) : _.noop;
     return () => {
+      const currentVarScope = this.varScope;
       while(testCall()) {
         resolveCall();
-        if (contentThis.varScope.__isBreak__) {
-          contentThis.varScope.__isBreak__ = false;
+        this.varScope = currentVarScope; // 防止函数调用自身带来作用哉干扰
+        if (this.varScope.__isBreak__) {
+          this.varScope.__isBreak__ = false;
           break;
         }
-        if (contentThis.varScope.__isContinute__) {
-          contentThis.varScope.__isContinute__ = false;
+        if (this.varScope.__isContinute__) {
+          this.varScope.__isContinute__ = false;
           continue;
         }
       }
@@ -735,14 +817,14 @@ export default class Customize {
 
   // doWhile
   callDoWhile(test: DslJson | DslJson[], body: DslJson) {
-    // 内容区是一个独立的子作用域
-    const contentThis = this.createContent();
-    const resolveCall = dslResolve(body, contentThis, true);
+    const resolveCall = body ? dslResolve(body, this, true) : _.noop;
     const callWhile = this.callWhile(test, body);
     return () => {
+      const currentVarScope = this.varScope;
       resolveCall();
-      if (contentThis.varScope.__isBreak__) {
-        contentThis.varScope.__isBreak__ = false;
+      this.varScope = currentVarScope; // 防止函数调用自身带来作用哉干扰
+      if (this.varScope.__isBreak__) {
+        this.varScope.__isBreak__ = false;
       } else {
         callWhile();
       }
@@ -758,19 +840,20 @@ export default class Customize {
   ) {
     const resolveInit = init ? dslResolve(init, this) : _.noop;
     const resolveTest = test ? this.getValue(test) : () => true;
-    const resolveUpdate = dslResolve(update, this);
-    // 内容区是一个独立的子作用域
-    const contentThis = this.createContent();
-    const resolveBody = dslResolve(body, contentThis, true);
+    const resolveUpdate = update ? dslResolve(update, this) : _.noop;
+    
+    const resolveBody = body ? dslResolve(body, this, true) : _.noop;
     return () => {
+      const currentVarScope = this.varScope;
       for(resolveInit(); resolveTest(); resolveUpdate()) {
         resolveBody();
-        if (contentThis.varScope.__isBreak__) {
-          contentThis.varScope.__isBreak__ = false;
+        this.varScope = currentVarScope; // 防止函数调用自身带来作用哉干扰
+        if (this.varScope.__isBreak__) {
+          this.varScope.__isBreak__ = false;
           break;
         }
-        if (contentThis.varScope.__isContinute__) {
-          contentThis.varScope.__isContinute__ = false;
+        if (this.varScope.__isContinute__) {
+          this.varScope.__isContinute__ = false;
           continue;
         }
       }
@@ -779,35 +862,36 @@ export default class Customize {
 
   // for...in
   callForIn(leftDsl: DslJson | DslJson[], rightDsl: DslJson | DslJson[], body: DslJson) {
-    console.log('=======callForIn->>>>');
     const getTargetObj = this.getValue(rightDsl);
-    console.log('=======callForIn->>>>1');
     const isMemberExpression = _.isArray(leftDsl);
     let resolveLeft: any = _.noop;
+
     if (isMemberExpression) {
       // 赋值表达式
       resolveLeft = this.assignLet(leftDsl as DslJson[]);
-    } else if ((leftDsl as DslJson)?.value?.[1]?.[0]) {
-      // 声明语句
-      console.log('=======callForIn->>>>2', JSON.stringify(leftDsl));
-      resolveLeft = dslResolve(leftDsl as DslJson, this);
+    } else {
+      const dsl = leftDsl as DslJson;
+      const leftDslValue = dsl.v || dsl.value;
+      if (leftDslValue?.[1]?.[0]) {
+        // 声明语句
+        resolveLeft = this.batchVar(leftDslValue[1]);
+      }
     }
-    console.log('=======callForIn->>>>3');
-    // 内容区是一个独立的子作用域
-    const contentThis = this.createContent();
-    const resolveBody = dslResolve(body, contentThis, true);
-    console.log('-------callForIn->>>>');
+    
+    const resolveBody = dslResolve(body, this, true);
     return () => {
       const targetObj = getTargetObj();
+      const currentVarScope = this.varScope;
       for(const item in targetObj) {
         resolveLeft(item);
         resolveBody();
-        if (contentThis.varScope.__isBreak__) {
-          contentThis.varScope.__isBreak__ = false;
+        this.varScope = currentVarScope; // 防止函数调用自身带来作用哉干扰
+        if (this.varScope.__isBreak__) {
+          this.varScope.__isBreak__ = false;
           break;
         }
-        if (contentThis.varScope.__isContinute__) {
-          contentThis.varScope.__isContinute__ = false;
+        if (this.varScope.__isContinute__) {
+          this.varScope.__isContinute__ = false;
           continue;
         }
       }
@@ -858,6 +942,21 @@ export default class Customize {
       };
     })();
 
+    // 变量声明
+    if (functionName) {
+      Object.assign(customize.varScope, { [functionName]: undefined });
+    }
+
+    // 函数声明上提
+    body.forEach(item => {
+      if (item.t === 'd' || item.type === 'declare-function') {
+        const functionName = item.n || item.name;
+        if (functionName) {
+          Object.assign(customize.varScope, { [functionName]: undefined });
+        }
+      }
+    });
+
     // body 预解析
     const lines = body.map(item => {
       if (!item) return _.noop;
@@ -865,109 +964,157 @@ export default class Customize {
     });
 
     // 通用作用域
-    const commonVarScope = customize.varScope;
+    let commonVarScope: any = null;
 
-    function anonymousFn () {
+    function execFunction () {
       // 重置 varScope
-      Object.assign(customize.varScope, commonVarScope);
+      const currentVarScope = { ...commonVarScope };
+      Object.defineProperty(currentVarScope, '__parentVarScope__', {
+        value: commonVarScope.__parentVarScope__,
+        writable: true
+      });
+      customize.varScope = currentVarScope;
       if (!isBlockStatement) {
         // 在函数上下文挂载 arguments
         setArguments(arguments);
         // 在函数上下文中挂载 this
         setThis(this || globalScope);
+        initParams();
       }
-      initParams();
 
-      // 直接返回
-      lines.some(execLine => {
-        execLine();
-        const returnObject = customize.varScope.__returnObject__;
-        const varScope = customize.varScope;
-        if (returnObject) { // 表示的返回
-          if (varScope.__isBlockStatement__) {
-            // 向上传递
-            parentVarScope.__returnObject__ = returnObject;
-          } else {
-            // 直接中断返回
-            return true;
-          }
-        }
-        if (customize.varScope.__isBreak__ || returnObject) {
-          if (
-            isBlockStatement && (
-              supportBreak || parentVarScope.__isBlockStatement__
-            )
-          ) {
-            // 向上传递
-            parentVarScope.__isBreak__ = true;
-            if (returnObject) {
-              // 循环体内，需要再向上传递
-              parentVarScope.__parentVarScope__.__returnObject__ = returnObject;
+      // 执行作用域入栈
+      execScopeStack.push(currentVarScope);
+      try {
+        // 直接返回
+        lines.some((execLine, index) => {
+          const prevExecLineBreak = customize.varScope.__isBreak__;
+          execLine();
+          customize.varScope = currentVarScope; // 防止函数调用自身带来作用域干扰
+          const returnObject = customize.varScope.__returnObject__;
+          const varScope = customize.varScope;
+          const parentVarScope = currentVarScope.__parentVarScope__;
+          if (returnObject) { // 表示的返回
+            if (varScope.__isBlockStatement__) {
+              // 向上传递
+              parentVarScope.__returnObject__ = returnObject;
+            } else {
+              // 直接中断返回
+              return true;
             }
-            // switch 或 循环中断
-            if (!supportBreak) {
-              customize.varScope.__isBreak__ = false;
-            }
-            return true;
           }
-          if (returnObject) return true;
-          customize.varScope.__isBreak__ = false;
-          throw new Error('Uncaught SyntaxError: Illegal break statement');
-        }
-        if (customize.varScope.__isContinute__) {
-          if (
-            isBlockStatement && (
-              supportContinue || parentVarScope.__isBlockStatement__
-            )
-          ) {
-            // 向上传递
-            parentVarScope.__isContinute__ = true;
-            // 循环跳过
-            if (!supportContinue) {
-              customize.varScope.__isContinute__ = false;
+          if (customize.varScope.__isBreak__ || returnObject) {
+            if (
+              isBlockStatement && (
+                supportBreak || parentVarScope.__isBlockStatement__
+              )
+            ) {
+              // 向上传递
+              parentVarScope.__isBreak__ = true;
+              parentVarScope.__break_y = true;
+              if (returnObject) {
+                // 循环体内，需要再向上传递
+                parentVarScope.__parentVarScope__.__returnObject__ = returnObject;
+              }
+              // switch 或 循环中断
+              if (!supportBreak) {
+                customize.varScope.__isBreak__ = false;
+              }
+              return true;
             }
-            return true;
+            if (returnObject) return true;
+            customize.varScope.__isBreak__ = false;
+            throw new Error('Uncaught SyntaxError: Illegal break statement');
           }
-          customize.varScope.__isContinute__ = false;
-          throw new Error('Uncaught SyntaxError: Illegal continute statement');
-        }
-        return false;
-      });
-      const result = customize.varScope.__returnObject__?.result;
-      if (!isBlockStatement) {
-        if (customize.varScope.__returnObject__) {
+          if (customize.varScope.__isContinute__) {
+            if (
+              isBlockStatement && (
+                supportContinue || parentVarScope.__isBlockStatement__
+              )
+            ) {
+              // 向上传递
+              parentVarScope.__isContinute__ = true;
+              // 循环跳过
+              if (!supportContinue) {
+                customize.varScope.__isContinute__ = false;
+              }
+              return true;
+            }
+            customize.varScope.__isContinute__ = false;
+            throw new Error('Uncaught SyntaxError: Illegal continute statement');
+          }
+          return false;
+        });
+      } finally {
+        // 执行作用域出栈
+        execScopeStack.pop();
+    
+        const result = customize.varScope.__returnObject__?.result;
+        if (!isBlockStatement) {
+          if (customize.varScope.__returnObject__) {
+            customize.varScope.__returnObject__ = null;
+            return result;
+          }
+        } else if (customize.varScope.__returnObject__) {
+          // blockStatement 向上传
+          customize.varScope.__parentVarScope__.__returnObject__ = {
+            result
+          };
+          // 清除
           customize.varScope.__returnObject__ = null;
-          return result;
         }
-      } else if (customize.varScope.__returnObject__) {
-        // blockStatement 向上传
-        customize.varScope.__parentVarScope__.__returnObject__ = {
-          result
-        };
-        // 清除
-        customize.varScope.__returnObject__ = null;
       }
     };
 
-    if (functionName) {
-      Object.assign(customize.varScope, { [functionName]: anonymousFn });
-      // 添加函数名
-      Object.defineProperty(anonymousFn, 'name', {value: functionName, writable: false, configurable: true } );
+    const initVarScope = customize.varScope;
+
+    if (body.length === 0) {
+      // 表示空函数
+      return () => {
+        const anonymousFn = function() {
+          return () => {};
+        };
+        if (functionName) {
+          // 添加函数名
+          Object.defineProperty(anonymousFn, 'name', {value: functionName, writable: false, configurable: true } );
+          // 声明语句
+          if (isDeclaration) {
+            Object.assign(this.varScope, { [functionName]: anonymousFn })
+          }
+        }
+        return anonymousFn;
+      };
     }
-    if (functionName && isDeclaration) {
-      // 有函数名
-      const setFunctionName = this.var(functionName, {
-        type: 'literal',
-        value: anonymousFn
-      });
-      // 立即设置函数名
-      setFunctionName();
-    }
-    return anonymousFn;
+
+    return () => {
+      // 相当于初始化函数
+      const varScope = { ...initVarScope };
+      if (!this.updateVarScope(varScope)) {
+        // 默认父级作用域
+        Object.defineProperty(varScope, '__parentVarScope__', {
+          value: customize.varScope.__parentVarScope__,
+          writable: true
+        });
+      }
+      const anonymousFn = function () {
+        commonVarScope = varScope;
+        return execFunction.apply(this, arguments);
+      }
+      if (functionName) {
+        // 添加函数名
+        Object.defineProperty(anonymousFn, 'name', {value: functionName, writable: false, configurable: true } );
+        // 在函数体内的作用域添加 functionName
+        Object.assign(varScope, { [functionName]: anonymousFn });
+        // 声明语句
+        if (isDeclaration) {
+          Object.assign(this.varScope, { [functionName]: anonymousFn })
+        }
+      }
+      return anonymousFn;
+    };
   }
   // 创建块作用域
   callBlockStatement(body: DslJson[], supportBreak = false, supportContinue = false) {
-    const blockStatementFn = this.createFunction(
+    const createBlockStatement = this.createFunction(
       [],
       body,
       undefined,
@@ -975,13 +1122,16 @@ export default class Customize {
       supportBreak,
       supportContinue
     );
-    blockStatementFn();
+    return () => {
+      const blockStatementFn = createBlockStatement();
+      blockStatementFn();
+    };
   }
   // ifElse 函数改造
   callIfElse(conditionDsl: DslJson | DslJson[], onTrue: DslJson, onFail: DslJson) {
     const getCondition = this.getValue(conditionDsl);
     const resolveTrue = dslResolve(onTrue, this);
-    const resolveFail = dslResolve(onFail, this);
+    const resolveFail = onFail ? dslResolve(onFail, this) : _.noop;
     return () => {
       getCondition() ? resolveTrue() : resolveFail();
     };
@@ -1006,18 +1156,14 @@ export default class Customize {
   }
   // 调用方法
   callFun(calleeDsl: DslJson | DslJson[], paramsDsl?: DslJson[], isClass = false) {
-    const getCallee = this.getValue(calleeDsl, false);
     let getParentCallee: any = _.noop;
+    const getCallee = this.getValue(calleeDsl, false, (getParent) => {
+      getParentCallee = getParent;
+    });
     const dslLen = (calleeDsl as DslJson[]).length;
     const lastIndex = dslLen - 1;
     const lastMember: string = calleeDsl[lastIndex] as string;
     const isCanvasContextApi = canvasContextApis.includes(lastMember);
-
-    if (_.isArray(calleeDsl) && dslLen > 1) {
-      const parentCalleeDsl = [...(calleeDsl as DslJson[])];
-      parentCalleeDsl.pop();
-      getParentCallee = this.getOrAssignOrDissocPath(parentCalleeDsl);
-    }
 
     let getParams = () => [] as any;
     if (paramsDsl?.length) {
@@ -1026,18 +1172,26 @@ export default class Customize {
       getParams = () => paramItems.map(getItemValue => getItemValue());
     }
 
-    const getFunInfos = () => {
-      const callee = getCallee();
-      const parentCallee = getParentCallee();
-      if(!callee) {
-        console.log('callee 不存在', {
-          callee,
-          calleeDsl,
-          paramsDsl
-        });
-        throw new Error(`callee 不存在`);
+    const getFunInfos = (type) => {
+      let callee: any = _.noop;
+      let parentCallee: any = _.noop;
+      // 按类型返回 callee 或 parentCallee
+      if (['class', 'default'].includes(type)) {
+        callee = getCallee();
+        if(!callee) {
+          console.log('callee 不存在', {
+            type,
+            callee,
+            calleeDsl,
+            paramsDsl,
+            varScope: this.varScope
+          });
+          throw new Error(`callee 不存在`);
+        }
+      } else {
+        parentCallee = getParentCallee();
       }
-      const params = getParams();
+      const params = getParams() as any[];
       return { callee, parentCallee, params };
     };
 
@@ -1053,8 +1207,10 @@ export default class Customize {
 
     if (isClass) {
       return () => {
-        const {callee, params} = getFunInfos();
-        if (_.isFunction(callee)) return new callee(...params);
+        const {callee, params} = getFunInfos('class');
+        if (_.isFunction(callee)) {
+          return new callee(...params);
+        };
         noFunction('class');
       };
     }
@@ -1062,10 +1218,8 @@ export default class Customize {
     // canvasContextApi 特殊处理
     if (isCanvasContextApi) {
       return () => {
-        const {parentCallee, params} = getFunInfos();
-        // 判断是否为 canvas
-        if (parentCallee.canvas) {
-          // CanvasContext 下的方法只能这样调用
+        const {parentCallee, params} = getFunInfos('canvasContextApi');
+        if (_.isFunction(parentCallee[lastMember])) {
           return parentCallee[lastMember](...params);
         }
         noFunction('canvasContextApi');
@@ -1075,29 +1229,39 @@ export default class Customize {
     switch(lastMember) {
       case 'call':
         return () => {
-          const {parentCallee, params} = getFunInfos();
-          if (!parentCallee.call.prototype && _.isFunction(parentCallee.call)) return parentCallee.call(...params);
+          const {parentCallee, params} = getFunInfos('call');
+          if (!parentCallee.call.prototype && _.isFunction(parentCallee.call)) {
+            try {
+              return parentCallee.call(...params);
+            } catch (err) {
+              console.log('-----call 错误：', { params, paramsDsl, calleeDsl, parentCallee, err }, this.varScope);
+              throw err;
+            }
+          }
           noFunction('call');
         };
       case 'apply':
         return () => {
-          const {parentCallee, params} = getFunInfos();
-          if (!parentCallee.apply.prototype && _.isFunction(parentCallee.apply)) return parentCallee.apply(...params);
+          const {parentCallee, params} = getFunInfos('apply');
+          if (!parentCallee.apply.prototype && _.isFunction(parentCallee.apply)) {
+            return parentCallee.apply(...params);
+          }
           noFunction('apply');
         };
       case 'bind':
         return () => {
-          const {parentCallee, params} = getFunInfos();
-          if (!parentCallee.bind.prototype && _.isFunction(parentCallee.bind)) return parentCallee.bind(...params);
+          const {parentCallee, params} = getFunInfos('bind');
+          if (!parentCallee.bind.prototype && _.isFunction(parentCallee.bind)) {
+            return parentCallee.bind(...params);
+          }
           noFunction('bind');
         };
       default:
         return () => {
-          const {callee, params} = getFunInfos();
+          const {callee, params} = getFunInfos('default');
           if (_.isFunction(callee)) {
             return callee(...params);
           }
-          console.log('callee', callee);
           noFunction('default');
         };
     }
@@ -1132,7 +1296,8 @@ export default class Customize {
     const testList: any[] = [];
     casesDsl.forEach(caseDsl => {
       const [testDsl, consequentDsl] = caseDsl;
-      testList.push(this.getValue(testDsl));
+      const getTest = testDsl ? this.getValue(testDsl) : () => testDsl;
+      testList.push(getTest);
       caseClauseList.push(this.callBlockStatement(consequentDsl, true));
     });
 
@@ -1141,7 +1306,7 @@ export default class Customize {
       testList.some((getTest, index) => {
         const test = getTest();
         // test === null 表示 default 分支
-        if (test === null || test === discriminant) {
+        if (test === discriminant || test === null) {
           for(let i = index; i < testList.length; ++i) {
             const caseClause = caseClauseList[i];
             caseClause();
@@ -1188,17 +1353,25 @@ export default class Customize {
   }
   // 返回 object-literal
   getObjectLiteral(value: any[]) {
-    const obj: any = {};
     const getObjectList: Record<string, Function> = {};
+    // __proto__ 属性需要放到最后
+    let setProtoProperty = _.noop;
     value.forEach(({
       k,
       key = k,
       v,
       value: valueDsl = v
     }) => {
-      getObjectList[key] = dslResolve(valueDsl, this);
+      if (key === '__proto__') {
+        setProtoProperty = () => {
+        getObjectList[key] = dslResolve(valueDsl, this);}
+      } else {
+        getObjectList[key] = dslResolve(valueDsl, this);
+      }
     });
+    setProtoProperty();
     return () => {
+      const obj: any = {};
       Object.entries(getObjectList).forEach(([key, getObject]) => {
         obj[key] = getObject();
       });

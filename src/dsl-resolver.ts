@@ -23,7 +23,8 @@ const dslResolve = (
   dslJson: DslJson | string,
   customize?: Customize,
   isLoopContentStatement: boolean = false,
-  preResolve: boolean = false
+  preResolve: boolean = false,
+  tag?: any
 ) => {
   // 变量的上下文也在这里
   if (_.isObject(dslJson)) {
@@ -41,7 +42,7 @@ const dslResolve = (
     ) {
       // memberExpression
       if (_.isArray(dslJson)) {
-        return customize.getValue(dslJson as DslJson[]);
+        return customize.getObjMember(dslJson as DslJson[]);
       }
       // 直接返回
       return () => dslJson as any;
@@ -74,7 +75,7 @@ const dslResolve = (
         return customize.batchVar(value.map(key => ({ key })));
       case 'member':
       case 'm':
-        return customize.getValue(value);
+        return customize.getObjMember(value);
       /**
        * 直接调用内置解析函数
        * 当 name 为 callFun 时，才是逻辑上的调用函数
