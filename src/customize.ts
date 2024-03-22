@@ -10,52 +10,6 @@ type BinaryOperator = "==" | "!=" | "===" | "!==" | "<" | "<=" | ">" | ">=" | "<
 type UpdateOperator = "++" | "--";
 type LogicalOperator = "||" | "&&";
 
-// CanvasContext 的方法
-const canvasContextApis = [
-  'arc',
-  'arcTo',
-  'beginPath',
-  'bezierCurveTo',
-  'clearRect',
-  'clip',
-  'closePath',
-  'createCircularGradient',
-  'createLinearGradient',
-  'createPattern',
-  'draw',
-  'drawImage',
-  'fill',
-  'fillRect',
-  'fillText',
-  'lineTo',
-  'measureText',
-  'moveTo',
-  'quadraticCurveTo',
-  'rect',
-  'restore',
-  'rotate',
-  'save',
-  'scale',
-  'setFillStyle',
-  'setFontSize',
-  'setGlobalAlpha',
-  'setLineCap',
-  'setLineDash',
-  'setLineJoin',
-  'setLineWidth',
-  'setMiterLimit',
-  'setShadow',
-  'setStrokeStyle',
-  'setTextAlign',
-  'setTextBaseline',
-  'setTransform',
-  'stroke',
-  'strokeRect',
-  'strokeText',
-  'transform',
-  'translate'
-];
-
 // window对象的平替
 export const globalScope: Record<string, any> = {
   // 运行环境
@@ -174,21 +128,13 @@ export default class Customize {
       value: parentVarScope || globalScope,
       writable: true
     });
-    if (parentVarScope?.__labels__?.length) {
-      this.varScope.__labels__.push(...parentVarScope.__labels__);
-    }
-    if (parentVarScope?.__tmpLabel__) {
-      const currentLabel = parentVarScope.__tmpLabel__;
-      this.varScope.__label__ = currentLabel;
-      this.varScope.__labels__.push(currentLabel);
-    }
     // sort-hand
     const resolveFunKeysMap = [
       ['const', 'co'],
       ['getValue', 'gV'],
       ['let', 'l'],
       ['var', 'v'],
-      ['batchConst', 'bC'],
+      // ['batchConst', 'bC'],
       ['batchLet', 'bL'],
       ['batchVar', 'bV'],
       ['batchDeclaration', 'bD'],
@@ -237,23 +183,12 @@ export default class Customize {
     __isContinute__: false,
     __isHotUpdating__: false, // 热更新中变量
     __labels__: [], // 标记语句栈
-    __label__: '' // 当前作用域的标记
+    __label__: '', // 当前 break 或 continue 指向的 label
+    __hasBreakStatement__: false, // 是否有 break 语句（预解析过程需要用到它来提高最后的执行速度）
+    __hasContinueStatement__: false, // 是否有 continue 语句（预解析过程需要用到它来提高最后的执行速度）
+    __hasReturnStatement__: false, // 是否有 return 语句（预解析过程需要用到它来提高最后的执行速度）
+    __containFunction__: false, // 是否包含定义子函数（预解析过程需要用到它来提高最后的执行速度）
   };
-  // 常量
-  const(key: string, valueDsl?: DslJson | DslJson[]) {
-    const preGetValue = valueDsl ? this.getValue(valueDsl) : _.noop;
-    return (realValue: any) => {
-      if (!this.varScope.__isHotUpdating__ && _.has(this.varScope, key)) {
-        throw new Error(`Uncaught TypeError: Assignment to constant variable. ${key}`);
-      }
-      const value = valueDsl ? preGetValue() : realValue;
-      Object.defineProperty(this.varScope, key, {
-        value,
-        writable: true, // 小程序环境中：writable 取 false，那么 enumerable 也一定是 false
-        enumerable: true
-      });
-    };
-  }
   // 获取值
   getValue(valueDsl: DslJson | DslJson[], ignoreBind = true, returnParent?: Function) {
     const isMemberExpression = _.isArray(valueDsl);
@@ -274,41 +209,22 @@ export default class Customize {
   }
   // let
   let(key: string, valueDsl?: DslJson | DslJson[], isVarKind: boolean = false, onlyDeclare: boolean = false) {
-    let varScope = this.varScope;
-    let raiseVarScopeKeyPath: string[] = [];
-    if (isVarKind) {
-      if (!varScope.__raiseVarScopeKeyPath__) {
-        // 没有定位到作用域，通过循环找到
-        while (varScope.__isBlockStatement__) {
-          // 块级作用域，var 声明必须上提作用域
-          varScope = varScope.__parentVarScope__;
-          raiseVarScopeKeyPath.push('__parentVarScope__');
-        }
-        // 标记有「上提作用域」
-        this.varScope.__raiseVarScopeKeyPath__ = raiseVarScopeKeyPath;
-      } else {
-        raiseVarScopeKeyPath = this.varScope.__raiseVarScopeKeyPath__
-        // 直接引用上提作用域
-        varScope = raiseVarScopeKeyPath.length ? _.get(this.varScope, raiseVarScopeKeyPath) : this.varScope;
-      }
-    }
+    const varScope = this.varScope;
     if (_.has(varScope, key)) {
       if (isVarKind) {
-        if (!onlyDeclare && valueDsl) {
           const preGetValue = valueDsl ? this.getValue(valueDsl) : _.noop;
-          if (!raiseVarScopeKeyPath.length) {
-            return (realValue?: any) => {
-              const currentVarScope = this.varScope;
-              const value = valueDsl ? preGetValue() : realValue;
-              currentVarScope[key] = value;
+          const that = this;
+          // 空声明
+          if (onlyDeclare && !valueDsl) {
+            return function() {
+              if (arguments.length) that.varScope[key] = arguments[0];
             };
           }
-          return (realValue?: any) => {
-            const currentVarScope = _.get(this.varScope, raiseVarScopeKeyPath);
-            const value = valueDsl ? preGetValue() : realValue;
+          return function () {
+            const currentVarScope = that.varScope;
+            const value = arguments.length ? arguments[0] : preGetValue();
             currentVarScope[key] = value;
           };
-        }
       } else {
         return () => {
           const errMsg = `Uncaught SyntaxError: Identifier "${key}" has already been declared`;
@@ -325,29 +241,15 @@ export default class Customize {
       if (!_.isFunction(preGetValue)) {
         console.log('========let error', {valueDsl, preGetValue});
       }
-      if (!raiseVarScopeKeyPath.length) {
-        return (realValue?: any) => {
-          const value = valueDsl ? preGetValue() : realValue;
-          this.varScope[key] = value;
-        };
-      }
       return (realValue?: any) => {
-        const currentVarScope = _.get(this.varScope, raiseVarScopeKeyPath);
         const value = valueDsl ? preGetValue() : realValue;
-        currentVarScope[key] = value;
+        this.varScope[key] = value;
       };
     }
-    // 默认为空
-    return _.noop;
   }
   // var
   var(key: string, valueDsl?: DslJson | DslJson[], onlyDeclare: boolean = false) {
     return this.let(key, valueDsl, true, onlyDeclare);
-  }
-  // 批量
-  batchConst(list: { key: string, value: any, k?: string, v?: any }[]) {
-    const constCalls: any[] = list.map(({ key, value, k, v }) => key ? this.const(key, value) : this.const(k!, v));
-    return () => constCalls.forEach(constCall => constCall());
   }
   batchVar(list: { key: string, value: any, k?: string, v?: any }[]) {
     const varCalls = list.map((item) => {
@@ -355,7 +257,13 @@ export default class Customize {
       const onlyDeclare = key ? !_.has(item, 'value') : !_.has(item, 'v');
       return key ? this.var(key, value, onlyDeclare) : this.var(k!, v, onlyDeclare)
     });
-    return (realValue?: any) => varCalls.forEach(varCall => varCall(realValue));
+    return function() {
+      const args = arguments;
+      return varCalls.forEach(varCall => {
+        const result = args.length ? varCall(args[0]) : varCall();
+        return result;
+      });
+    };
   }
   batchLet(list: { key: string, value: any }[]) {
     return this.batchVar(list);
@@ -366,8 +274,6 @@ export default class Customize {
         return this.batchVar(list);
       case "let":
         return this.batchLet(list);
-      case "const":
-        return this.batchConst(list);
     }
   }
   // 取值
@@ -389,6 +295,8 @@ export default class Customize {
 
     if(!keyPath.length) {
       return () => this.varScope[key];
+    } else if (varScope === globalScope) {
+      return () => globalScope[key];
     } else {
       return () => _.get(this.varScope, keyPath)[key];
     }
@@ -426,6 +334,14 @@ export default class Customize {
         return this.getValue(item);
       }
       if (_.isString(item) || _.isNumber(item)) return () => item;
+      const { t, type } = item as DslJson;
+      // 字面量特殊处理
+      if (index > 0 && (t === 'l' || type === 'literal')) {
+        const valueKey = t === 'l' ? 'v' : 'value';
+        const value = item[valueKey];
+        keyPathOfDsl[index] = value;
+        return () => value;
+      }
       return dslResolve(item, this, false, false, `getOrAssignOrDissocPath | ${type} | ${JSON.stringify(keyPathOfDsl)}`);
     }) as any[];
     // 表示对象的根名称
@@ -440,6 +356,17 @@ export default class Customize {
     }
     const parentKeyPathCalls = [...keyPathCalls];
     const lastKeyCall = parentKeyPathCalls.pop();
+
+    const parentLen = parentKeyPathCalls.length;
+    let lastKeyIsSimple = true;
+    const isSimple = keyPathOfDsl.every((item, index) => {
+      const result = _.isString(item) || _.isNumber(item);
+      if (index === keyPathOfDsl.length - 1) {
+        lastKeyIsSimple = result;
+        return true;
+      }
+      return result;
+    });
 
     // 获取目标作用域
     let getTargetScope: any | null = null;
@@ -456,11 +383,79 @@ export default class Customize {
         let parent = this.varScope.__parentVarScope__;
         const parentKeyPath = ['__parentVarScope__'];
         while(Boolean(parent)) {
-          if (_.hasIn(parent, firstKey)) {
-            // 找到作用域
-            getTargetScope = () => {
-              return _.get(this.varScope, parentKeyPath);
-            };
+          if (_.hasIn(parent, firstKey)) { // 找到作用域
+            if (parent === globalScope) {
+              getTargetScope = () => globalScope;
+            } else {
+              switch (parentKeyPath.length) {
+                case 1:
+                  getTargetScope = () => {
+                    return this.varScope.__parentVarScope__;
+                  };
+                  break;
+                case 2:
+                  getTargetScope = () => {
+                    return this.varScope.__parentVarScope__.__parentVarScope__;
+                  };
+                  break;
+                case 3:
+                  getTargetScope = () => {
+                    return this.varScope.__parentVarScope__.__parentVarScope__.__parentVarScope__;
+                  };
+                  break;
+                case 4:
+                  getTargetScope = () => {
+                    return this.varScope.__parentVarScope__.__parentVarScope__.__parentVarScope__.__parentVarScope__;
+                  };
+                  break;
+                case 5:
+                  getTargetScope = () => {
+                    return this.varScope.__parentVarScope__.__parentVarScope__.__parentVarScope__.__parentVarScope__.__parentVarScope__;
+                  };
+                  break;
+                case 6:
+                  getTargetScope = () => {
+                    return this.varScope.__parentVarScope__.__parentVarScope__.__parentVarScope__.__parentVarScope__.__parentVarScope__.__parentVarScope__;
+                  };
+                  break;
+                case 7:
+                  getTargetScope = () => {
+                    return this.varScope.__parentVarScope__.__parentVarScope__.__parentVarScope__.__parentVarScope__.__parentVarScope__.__parentVarScope__.__parentVarScope__;
+                  };
+                  break;
+                case 8:
+                  getTargetScope = () => {
+                    return this.varScope.__parentVarScope__.__parentVarScope__.__parentVarScope__.__parentVarScope__.__parentVarScope__.__parentVarScope__.__parentVarScope__.__parentVarScope__;
+                  };
+                  break;
+                case 9:
+                  getTargetScope = () => {
+                    return this.varScope.__parentVarScope__.__parentVarScope__.__parentVarScope__.__parentVarScope__.__parentVarScope__.__parentVarScope__.__parentVarScope__.__parentVarScope__.__parentVarScope__;
+                  };
+                  break;
+                case 10:
+                  getTargetScope = () => {
+                    return this.varScope.__parentVarScope__.__parentVarScope__.__parentVarScope__.__parentVarScope__.__parentVarScope__.__parentVarScope__.__parentVarScope__.__parentVarScope__.__parentVarScope__.__parentVarScope__;
+                  };
+                  break;
+                case 11:
+                  getTargetScope = () => {
+                    return this.varScope.__parentVarScope__.__parentVarScope__.__parentVarScope__.__parentVarScope__.__parentVarScope__.__parentVarScope__.__parentVarScope__.__parentVarScope__.__parentVarScope__.__parentVarScope__.__parentVarScope__;
+                  };
+                  break;
+                case 12:
+                  getTargetScope = () => {
+                    return this.varScope.__parentVarScope__.__parentVarScope__.__parentVarScope__.__parentVarScope__.__parentVarScope__.__parentVarScope__.__parentVarScope__.__parentVarScope__.__parentVarScope__.__parentVarScope__.__parentVarScope__.__parentVarScope__;
+                  };
+                  break;
+                default:
+                  console.log('parentKeyPath 超过10', parentKeyPath.length);
+                  getTargetScope = () => {
+                    return _.get(this.varScope, parentKeyPath);
+                  };
+                  break;
+              }
+            }
             break;
           }
           parent = parent.__parentVarScope__;
@@ -470,10 +465,14 @@ export default class Customize {
     }
     if (getTargetScope !== null) {
       const getParent = (targetScope, parentKeyPath) => {
-        return parentKeyPathCalls.length ? _.get(targetScope, parentKeyPath) : targetScope;
+        return parentLen ? _.get(targetScope, parentKeyPath) : targetScope;
       };
       const getParentKeyPath = () => {
-        return parentKeyPathCalls.map(item => item());
+        const parentKeyPath: any[] = [];
+        for(let i = 0; i < parentLen; ++i) {
+          parentKeyPath[i] = parentKeyPathCalls[i]();
+        }
+        return parentKeyPath;
       };
       if (_.isFunction(returnParent)) {
         returnParent!(() => {
@@ -483,19 +482,40 @@ export default class Customize {
           return parent;
         });
       }
+      
       if (type === 'assign') {
         const preGetValue = valueDsl ? this.getValue(valueDsl) : _.noop;
         const getResult = this.getResultByOperator(operator);
-        return (realValue?: any) => {
+        if (keyPathOfDsl.length === 1) {
+          const key = firstDsl as string;
+          return function() {
+            const targetScope = getTargetScope();
+            const value = arguments.length ? arguments[0] : preGetValue();
+            return targetScope[key] = getResult(targetScope[key], value);
+          }
+        } else if(isSimple) {
+          const parentKeyPath = [...keyPathOfDsl];
+          const lastDsl = parentKeyPath.pop() as string;
+          const getLastKey = () => lastKeyIsSimple ? lastDsl : lastKeyCall();
+          // 极简模式
+          return function() {
+            const lastKey = getLastKey();
+            const targetScope = getTargetScope();
+            const parent = getParent(targetScope, parentKeyPath);
+            const value = arguments.length ? arguments[0] : preGetValue();
+            return parent[lastKey] = getResult(parent[lastKey], value);
+          };
+        }
+        return function() {
           const targetScope = getTargetScope();
           const parentKeyPath = getParentKeyPath();
           if (!parentKeyPath.length || _.hasIn(targetScope, parentKeyPath)) {
             // 执行赋值
             const lastKey = lastKeyCall();
-            const keyPath = [...parentKeyPath, lastKey];
+            const keyPath = parentKeyPath.concat([lastKey]);
             const parent = getParent(targetScope, parentKeyPath);
             // 要在 lastKey 之后调用 preGetValue
-            const value = _.isUndefined(realValue) ? preGetValue() : realValue;
+            const value = arguments.length ? arguments[0] : preGetValue();
             const result = getResult(_.get(targetScope, keyPath), value);
             return parent[lastKey!] = result;
           }
@@ -513,10 +533,11 @@ export default class Customize {
         };
       } else if (type === 'get' || type === 'parentAndLastKey') {
         if (keyPathOfDsl.length === 1) {
+          // Identifier 模式
           if (type === 'parentAndLastKey') {
             return () => {
               const targetScope = getTargetScope();
-              const lastKey = lastKeyCall();
+              const lastKey = lastKeyCall ? lastKeyCall() : undefined;
               return { parent: targetScope, lastKey };
             };
           }
@@ -525,7 +546,48 @@ export default class Customize {
             const lastKey = lastKeyCall();
             return targetScope[lastKey];
           };
+        } else if (isSimple) {
+          // 简单模式
+          const parentKeyPath = [...keyPathOfDsl];
+          const lastDsl = parentKeyPath.pop() as string;
+          const getLastKey = () => lastKeyIsSimple ? lastDsl : lastKeyCall();
+          if (type === 'parentAndLastKey') {
+            return () => {
+              const targetScope = getTargetScope();
+              const parent = _.get(targetScope, parentKeyPath);
+              return { parent, lastKey: getLastKey() };
+            };
+          }
+          const [one, two, three, four] = keyPathOfDsl as string[];
+          switch(keyPathOfDsl.length) {
+            case 2:
+              return () => {
+                const targetScope = getTargetScope();
+                return targetScope[one][getLastKey()];
+              };
+            case 3:
+              return () => {
+                const targetScope = getTargetScope();
+                return targetScope[one][two][getLastKey()];
+              };
+            case 4:
+              return () => {
+                const targetScope = getTargetScope();
+                return targetScope[one][two][three][getLastKey()];
+              };
+            case 5:
+              return () => {
+                const targetScope = getTargetScope();
+                return targetScope[one][two][three][four][getLastKey()];
+              };
+            default:
+              return () => {
+                const targetScope = getTargetScope();
+                return _.get(targetScope, keyPathOfDsl);;
+              };
+          }
         }
+        // 完全模式
         if (type === 'parentAndLastKey') {
           return () => {
             const targetScope = getTargetScope();
@@ -539,23 +601,18 @@ export default class Customize {
           const targetScope = getTargetScope();
           const parentKeyPath = getParentKeyPath();
           const lastKey = lastKeyCall();
-          const keyPath = [...parentKeyPath, lastKey];
+          const keyPath = parentKeyPath.concat([lastKey]);
           const parent = getParent(targetScope, parentKeyPath);
-          if (_.hasIn(targetScope, keyPath)) {
+          if (!_.isNil(parent)) {
             // keyPath 找得到，返回结果
-            let result = _.get(targetScope, keyPath);
-            // 绑定 this 指针
-            if (
-              !ignoreBind &&
-              _.isFunction(result) &&
-              parent !== Function && // Function 不能被绑定
-              lastKey !== 'call' &&
-              lastKey !== 'bind' &&
-              lastKey !== 'apply'
-            ) {
-              result = result.bind(parent);
-            }
-            return result;
+            // return _.get(targetScope, keyPath);
+            return parent[lastKey];
+          }
+          if (_.isUndefined(parent)) {
+            console.log('TypeError', { keyPathOfDsl, keyPath, targetScope });
+            throw new Error(`TypeError: Cannot read property '${lastKey}' of undefine`);
+          } else if (_.isNull(parent)) {
+            throw new Error(`TypeError: Cannot read property '${lastKey}' of null`);
           }
         }
       }
@@ -616,6 +673,7 @@ export default class Customize {
   }
   // 返回值
   callReturn(dslJson: DslJson | DslJson[]) {
+    this.varScope.__hasReturnStatement__ = true;
     // 标记已经返回
     const preGetValue = dslJson ? this.getValue(dslJson) : _.noop;
     return () => {
@@ -627,6 +685,7 @@ export default class Customize {
   }
   // break
   callBreak(label?: string) {
+    this.varScope.__hasBreakStatement__ = true;
     if (label) {
       if (!this.varScope.__labels__.includes(label)) {
         // 表示找不到对应的 label
@@ -635,16 +694,8 @@ export default class Customize {
         };
       }
       return () => {
-        let varScope = this.varScope;
-        while(varScope) {
-          // 向上传递 break
-          varScope.__isBreak__ = true;
-          if (varScope.__label__ === label) {
-            // 到达标记语句，停止上升
-            break;
-          }
-          varScope = varScope.__parentVarScope__;
-        }
+        this.varScope.__label__ = label;
+        this.varScope.__isBreak__ = true;
       };
     } else {
       return () => {
@@ -654,6 +705,7 @@ export default class Customize {
   }
   // continute
   callContinute(label?: string) {
+    this.varScope.__hasContinueStatement__ = true;
     if (label) {
       if (!this.varScope.__labels__.includes(label)) {
         // 表示找不到对应的 label
@@ -662,16 +714,8 @@ export default class Customize {
         };
       }
       return () => {
-        let varScope = this.varScope;
-        while(varScope) {
-          // 向上传递 break
-          varScope.__isContinute__ = true;
-          if (varScope.__label__ === label) {
-            // 到达标记语句，停止上升
-            break;
-          }
-          varScope = this.varScope.__parentVarScope__;
-        }
+        this.varScope.__label__ = label;
+        this.varScope.__isContinute__ = true;
       };
     } else {
       return () => {
@@ -764,17 +808,30 @@ export default class Customize {
   }
   // 更新
   callUpdate(operator: UpdateOperator, argument: DslJson | DslJson[], prefix: boolean) {
-
     const keyPathDsl = (_.isArray(argument) ? argument : [argument]) as DslJson[];
-    const getParentAndLastKey: any = this.getOrAssignOrDissocPath(keyPathDsl, undefined, undefined, 'parentAndLastKey');
-    return () => {
-      const { parent, lastKey } = getParentAndLastKey();
-      if (prefix) {
-        return operator === '++' ? ++parent[lastKey] : --parent[lastKey];
-      }
-      return operator === '++' ? parent[lastKey]++ : parent[lastKey]--;
-    };
-    
+    const getParentAndLastKey = this.getOrAssignOrDissocPath(keyPathDsl, undefined, undefined, 'parentAndLastKey') as Function;
+    switch(true) {
+      case prefix && operator === '++':
+        return () => {
+          const { parent, lastKey } = getParentAndLastKey();
+          return ++parent[lastKey];
+        }
+      case prefix && operator === '--':
+        return () => {
+          const { parent, lastKey } = getParentAndLastKey();
+          return --parent[lastKey];
+        }
+      case !prefix && operator === '++':
+        return () => {
+          const { parent, lastKey } = getParentAndLastKey();
+          return parent[lastKey]++;
+        };
+      case !prefix && operator === '--':
+        return () => {
+          const { parent, lastKey } = getParentAndLastKey();
+          return parent[lastKey]--;
+        };
+    }
   }
   // 逻辑运算
   callLogical(leftDsl: DslJson | DslJson[], operator: LogicalOperator, rightDsl: DslJson | DslJson[]) {
@@ -802,13 +859,16 @@ export default class Customize {
       const currentVarScope = this.varScope;
       while(testCall()) {
         resolveCall();
-        this.varScope = currentVarScope; // 防止函数调用自身带来作用哉干扰
-        if (this.varScope.__isBreak__) {
-          this.varScope.__isBreak__ = false;
+        if (currentVarScope.__isBreak__) {
+          currentVarScope.__isBreak__ = currentVarScope.__keepBreaking__;
           break;
         }
-        if (this.varScope.__isContinute__) {
-          this.varScope.__isContinute__ = false;
+        if (currentVarScope.__returnObject__) {
+          // 遇到 return 语句
+          break;
+        }
+        if (currentVarScope.__isContinute__) {
+          currentVarScope.__isContinute__ = currentVarScope.__keepContinue__;
           continue;
         }
       }
@@ -822,10 +882,9 @@ export default class Customize {
     return () => {
       const currentVarScope = this.varScope;
       resolveCall();
-      this.varScope = currentVarScope; // 防止函数调用自身带来作用哉干扰
-      if (this.varScope.__isBreak__) {
-        this.varScope.__isBreak__ = false;
-      } else {
+      if (currentVarScope.__isBreak__) {
+        currentVarScope.__isBreak__ = currentVarScope.__keepBreaking__;
+      } else if (!currentVarScope.__returnObject__) {
         callWhile();
       }
     };
@@ -847,13 +906,16 @@ export default class Customize {
       const currentVarScope = this.varScope;
       for(resolveInit(); resolveTest(); resolveUpdate()) {
         resolveBody();
-        this.varScope = currentVarScope; // 防止函数调用自身带来作用哉干扰
-        if (this.varScope.__isBreak__) {
-          this.varScope.__isBreak__ = false;
+        if (currentVarScope.__isBreak__) {
+          currentVarScope.__isBreak__ = currentVarScope.__keepBreaking__;
           break;
         }
-        if (this.varScope.__isContinute__) {
-          this.varScope.__isContinute__ = false;
+        if (currentVarScope.__returnObject__) {
+          // 遇到 return 语句
+          break;
+        }
+        if (currentVarScope.__isContinute__) {
+          currentVarScope.__isContinute__ = currentVarScope.__keepContinue__;
           continue;
         }
       }
@@ -877,21 +939,24 @@ export default class Customize {
         resolveLeft = this.batchVar(leftDslValue[1]);
       }
     }
-    
     const resolveBody = dslResolve(body, this, true);
+
     return () => {
-      const targetObj = getTargetObj();
       const currentVarScope = this.varScope;
+      const targetObj = getTargetObj();
       for(const item in targetObj) {
         resolveLeft(item);
         resolveBody();
-        this.varScope = currentVarScope; // 防止函数调用自身带来作用哉干扰
-        if (this.varScope.__isBreak__) {
-          this.varScope.__isBreak__ = false;
+        if (currentVarScope.__isBreak__) {
+          currentVarScope.__isBreak__ = currentVarScope.__keepBreaking__;
           break;
         }
-        if (this.varScope.__isContinute__) {
-          this.varScope.__isContinute__ = false;
+        if (currentVarScope.__returnObject__) {
+          // 遇到 return 语句
+          break;
+        }
+        if (currentVarScope.__isContinute__) {
+          currentVarScope.__isContinute__ = currentVarScope.__keepContinue__;
           continue;
         }
       }
@@ -910,9 +975,11 @@ export default class Customize {
   ) {
     const parentVarScope = this.varScope;
     // 预解析使用的 customize
-    const customize = new Customize(parentVarScope);
-    // 挂载 isBlockStatement
-    Object.assign(customize.varScope, {  __isBlockStatement__: isBlockStatement });
+    const customize = isBlockStatement ? this : new Customize(parentVarScope);
+
+    // 以下用于定位错位信息
+    customize.varScope.$$__body__$$ = body;
+    customize.varScope.$$__params__$$ = params;
 
     let setArguments: any = _.noop;
     let setThis: any = _.noop;
@@ -923,28 +990,45 @@ export default class Customize {
       setArguments = customize.var('arguments');
       // 在函数上下文中挂载 this，但是不赋值
       setThis = customize.var('this');
+      // 标记有子函数
+      parentVarScope.__containFunction__ = true;
     }
 
     // 初始化形参
     const initParams = (() => {
-      const paramItemInitList = params.map((name, index) => {
+      params.forEach((name, index) => {
         /**
          * 形参用 var 不用 const & let
          * 值必须使用 DSL 格式
          */
-        return customize.var(name!, {
-          type: 'member',
-          value: ['arguments', index]
-        });
+        return customize.var(name!);
       });
-      return () => {
-        paramItemInitList.forEach(itemInit => itemInit());
+      return (args) => {
+        // paramItemInitList.forEach(itemInit => itemInit());
+        params.forEach((name, index) => {
+          customize.varScope[name] = args[index];
+        });
       };
     })();
 
     // 变量声明
     if (functionName) {
       Object.assign(customize.varScope, { [functionName]: undefined });
+    }
+
+    // 空块
+    if (isBlockStatement && body.length === 0) {
+      return () => _.noop;
+    }
+
+    // 空函数
+    if (!isBlockStatement && body.length === 1) {
+      const empty = function() {};
+      if (functionName && isDeclaration) {
+        Object.assign(this.varScope, { [functionName]: empty });
+      }
+      // 这里不能返回 _.noop，必须是返回一个新函数
+      return () => empty;
     }
 
     // 函数声明上提
@@ -957,125 +1041,164 @@ export default class Customize {
       }
     });
 
+    // 当前的 label 名
+    const currentLabel = customize.varScope.__tmpLabel__;
+    if (currentLabel) {
+      delete customize.varScope.__tmpLabel__;
+    }
+
+    let hasBreakStatement = false;
+    let hasContinueStatement = false;
+    let hasReturnStatement = false;
+
     // body 预解析
     const lines = body.map(item => {
       if (!item) return _.noop;
-      return dslResolve(item, customize);
+      const execLine = dslResolve(item, customize);
+      if(customize.varScope.__hasBreakStatement__) {
+        hasBreakStatement = true;
+        customize.varScope.__hasBreakStatement__ = false; // 重置为 false，防止干扰其它 block
+      } else if (customize.varScope.__hasContinueStatement__) {
+        hasContinueStatement = true;
+        customize.varScope.__hasContinueStatement__ = false; // 重置为 false，防止干扰其它 block
+      } else if(customize.varScope.__hasReturnStatement__) {
+        hasReturnStatement = true;
+        customize.varScope.__hasReturnStatement__ = false; // 重置为 false，防止干扰其它 block
+      }
+      return execLine;
     });
 
-    // 通用作用域
-    let commonVarScope: any = null;
+    if (!isBlockStatement) {
+      lines.shift();
+    }
 
-    function execFunction () {
-      // 重置 varScope
-      const currentVarScope = { ...commonVarScope };
-      Object.defineProperty(currentVarScope, '__parentVarScope__', {
-        value: commonVarScope.__parentVarScope__,
-        writable: true
-      });
-      customize.varScope = currentVarScope;
-      if (!isBlockStatement) {
+    // 重新标记
+    customize.varScope.__hasBreakStatement__ = hasBreakStatement;
+    customize.varScope.__hasContinueStatement__ = hasContinueStatement;
+    customize.varScope.__hasReturnStatement__ = hasReturnStatement;
+
+    const containFunction = customize.varScope.__containFunction__;
+
+    if (isBlockStatement) { // 块
+      let execBlock: Function;
+      if (!hasBreakStatement && !hasContinueStatement) {
+        if (!hasReturnStatement) {
+          execBlock = function() {
+            lines.forEach((execLine) => {
+              execLine();
+            });
+          };
+        } else {
+          execBlock = function() {
+            lines.some((execLine) => {
+              const currentVarScope = customize.varScope;
+              execLine();
+              if (currentVarScope.__returnObject__) return true;
+              return false;
+            });
+          };
+        }
+      } else {
+        execBlock = function () {
+          const currentVarScope = customize.varScope;
+          const storeSupportBreak = currentVarScope.__supportBreak__;
+          if (supportBreak) {
+            currentVarScope.__supportBreak__ = true;
+          }
+          const storeSupportContinue = currentVarScope.__supportContine__;
+          if (supportContinue) {
+            currentVarScope.__supportContine__ = true;
+          }
+          lines.some((execLine) => {
+            execLine();
+            if (currentVarScope.__returnObject__) return true;
+            const hasLabel = Boolean(currentVarScope.__label__);
+            const keep = hasLabel && currentVarScope.__label__ !== currentLabel;
+            if (currentVarScope.__isBreak__) {
+              if (currentVarScope.__supportBreak__) {
+                currentVarScope.__keepBreaking__ = keep;
+                if (hasLabel && !keep) {
+                  currentVarScope.__label__ = '';
+                }
+                return true;
+              }
+              throw new Error('Uncaught SyntaxError: Illegal break statement');
+            } else if (currentVarScope.__isContinute__) {
+              if (currentVarScope.__supportContine__) {
+                currentVarScope.__keepContinue__ = keep;
+                return true;
+              }
+              throw new Error('Uncaught SyntaxError: Illegal continute statement');
+            }
+            return false;
+          });
+          currentVarScope.__supportBreak__ = storeSupportBreak;
+          currentVarScope.__supportContine__ = storeSupportContinue;
+        };
+      }
+      return () => execBlock();
+    } else { // 函数
+      let FreshVarScope;
+      // 执行函数
+      function execFunction () {
+        const prevVarScope = customize.varScope;
+        // 重置 varScope
+        const currentVarScope = new FreshVarScope();
+        customize.varScope = currentVarScope;
+
         // 在函数上下文挂载 arguments
         setArguments(arguments);
         // 在函数上下文中挂载 this
         setThis(this || globalScope);
-        initParams();
-      }
+        initParams(arguments);
 
-      // 执行作用域入栈
-      execScopeStack.push(currentVarScope);
-      try {
-        // 直接返回
-        lines.some((execLine, index) => {
-          const prevExecLineBreak = customize.varScope.__isBreak__;
-          execLine();
-          customize.varScope = currentVarScope; // 防止函数调用自身带来作用域干扰
-          const returnObject = customize.varScope.__returnObject__;
-          const varScope = customize.varScope;
-          const parentVarScope = currentVarScope.__parentVarScope__;
-          if (returnObject) { // 表示的返回
-            if (varScope.__isBlockStatement__) {
-              // 向上传递
-              parentVarScope.__returnObject__ = returnObject;
-            } else {
+        // 执行作用域入栈
+        containFunction && execScopeStack.push(currentVarScope);
+        try {
+          // 直接返回
+          lines.some((execLine) => {
+            execLine();
+            if (currentVarScope.__returnObject__) { // 表示的返回
               // 直接中断返回
               return true;
             }
-          }
-          if (customize.varScope.__isBreak__ || returnObject) {
-            if (
-              isBlockStatement && (
-                supportBreak || parentVarScope.__isBlockStatement__
-              )
-            ) {
-              // 向上传递
-              parentVarScope.__isBreak__ = true;
-              parentVarScope.__break_y = true;
-              if (returnObject) {
-                // 循环体内，需要再向上传递
-                parentVarScope.__parentVarScope__.__returnObject__ = returnObject;
-              }
-              // switch 或 循环中断
-              if (!supportBreak) {
-                customize.varScope.__isBreak__ = false;
-              }
-              return true;
-            }
-            if (returnObject) return true;
-            customize.varScope.__isBreak__ = false;
-            throw new Error('Uncaught SyntaxError: Illegal break statement');
-          }
-          if (customize.varScope.__isContinute__) {
-            if (
-              isBlockStatement && (
-                supportContinue || parentVarScope.__isBlockStatement__
-              )
-            ) {
-              // 向上传递
-              parentVarScope.__isContinute__ = true;
-              // 循环跳过
-              if (!supportContinue) {
-                customize.varScope.__isContinute__ = false;
-              }
-              return true;
-            }
-            customize.varScope.__isContinute__ = false;
-            throw new Error('Uncaught SyntaxError: Illegal continute statement');
-          }
-          return false;
-        });
-      } finally {
-        // 执行作用域出栈
-        execScopeStack.pop();
-    
-        const result = customize.varScope.__returnObject__?.result;
-        if (!isBlockStatement) {
-          if (customize.varScope.__returnObject__) {
-            customize.varScope.__returnObject__ = null;
+            return false;
+          });
+        } finally {
+          // 执行作用域出栈
+          containFunction && execScopeStack.pop();
+          customize.varScope = prevVarScope; // 防止函数调用自身带来作用域干扰
+      
+          if (currentVarScope.__returnObject__) {
+            const result = currentVarScope.__returnObject__.result;
+            currentVarScope.__returnObject__ = null;
             return result;
           }
-        } else if (customize.varScope.__returnObject__) {
-          // blockStatement 向上传
-          customize.varScope.__parentVarScope__.__returnObject__ = {
-            result
-          };
-          // 清除
-          customize.varScope.__returnObject__ = null;
         }
-      }
-    };
-
-    const initVarScope = customize.varScope;
-
-    if (body.length === 0) {
-      // 表示空函数
+      };
+      const initVarScope = customize.varScope;
       return () => {
-        const anonymousFn = function() {
-          return () => {};
-        };
+        // 相当于初始化函数
+        const varScope = { ...initVarScope };
+        if (!this.updateVarScope(varScope)) {
+          // 默认父级作用域
+          Object.defineProperty(varScope, '__parentVarScope__', {
+            value: customize.varScope.__parentVarScope__,
+            writable: true
+          });
+        }
+        const varScopeConstructor = function() {};
+        varScopeConstructor.prototype = varScope;
+
+        const anonymousFn = function () {
+          FreshVarScope = varScopeConstructor;
+          return execFunction.apply(this, arguments);
+        }
         if (functionName) {
           // 添加函数名
           Object.defineProperty(anonymousFn, 'name', {value: functionName, writable: false, configurable: true } );
+          // 在函数体内的作用域添加 functionName
+          Object.assign(varScope, { [functionName]: anonymousFn });
           // 声明语句
           if (isDeclaration) {
             Object.assign(this.varScope, { [functionName]: anonymousFn })
@@ -1084,37 +1207,10 @@ export default class Customize {
         return anonymousFn;
       };
     }
-
-    return () => {
-      // 相当于初始化函数
-      const varScope = { ...initVarScope };
-      if (!this.updateVarScope(varScope)) {
-        // 默认父级作用域
-        Object.defineProperty(varScope, '__parentVarScope__', {
-          value: customize.varScope.__parentVarScope__,
-          writable: true
-        });
-      }
-      const anonymousFn = function () {
-        commonVarScope = varScope;
-        return execFunction.apply(this, arguments);
-      }
-      if (functionName) {
-        // 添加函数名
-        Object.defineProperty(anonymousFn, 'name', {value: functionName, writable: false, configurable: true } );
-        // 在函数体内的作用域添加 functionName
-        Object.assign(varScope, { [functionName]: anonymousFn });
-        // 声明语句
-        if (isDeclaration) {
-          Object.assign(this.varScope, { [functionName]: anonymousFn })
-        }
-      }
-      return anonymousFn;
-    };
   }
   // 创建块作用域
   callBlockStatement(body: DslJson[], supportBreak = false, supportContinue = false) {
-    const createBlockStatement = this.createFunction(
+    return this.createFunction(
       [],
       body,
       undefined,
@@ -1122,10 +1218,6 @@ export default class Customize {
       supportBreak,
       supportContinue
     );
-    return () => {
-      const blockStatementFn = createBlockStatement();
-      blockStatementFn();
-    };
   }
   // ifElse 函数改造
   callIfElse(conditionDsl: DslJson | DslJson[], onTrue: DslJson, onFail: DslJson) {
@@ -1156,43 +1248,31 @@ export default class Customize {
   }
   // 调用方法
   callFun(calleeDsl: DslJson | DslJson[], paramsDsl?: DslJson[], isClass = false) {
-    let getParentCallee: any = _.noop;
-    const getCallee = this.getValue(calleeDsl, false, (getParent) => {
-      getParentCallee = getParent;
-    });
+    calleeDsl = _.isArray(calleeDsl) ? calleeDsl : [calleeDsl];
+    const getParentAndLastKey = this.getOrAssignOrDissocPath(calleeDsl, undefined, undefined, 'parentAndLastKey') as Function;
     const dslLen = (calleeDsl as DslJson[]).length;
     const lastIndex = dslLen - 1;
     const lastMember: string = calleeDsl[lastIndex] as string;
-    const isCanvasContextApi = canvasContextApis.includes(lastMember);
 
     let getParams = () => [] as any;
-    if (paramsDsl?.length) {
+    const paramsLen = paramsDsl?.length;
+    if (paramsLen) {
       // 表示有入参
       const paramItems = paramsDsl.map(item => this.getValue(item));
-      getParams = () => paramItems.map(getItemValue => getItemValue());
+      getParams = () => {
+        // 不要使用 Array.map，Array.push 性能太低了
+        const params: any[] = [];
+        for(let i = 0; i < paramsLen; ++i) {
+          params[i] = paramItems[i]();
+        }
+        return params;
+      };
     }
 
-    const getFunInfos = (type) => {
-      let callee: any = _.noop;
-      let parentCallee: any = _.noop;
-      // 按类型返回 callee 或 parentCallee
-      if (['class', 'default'].includes(type)) {
-        callee = getCallee();
-        if(!callee) {
-          console.log('callee 不存在', {
-            type,
-            callee,
-            calleeDsl,
-            paramsDsl,
-            varScope: this.varScope
-          });
-          throw new Error(`callee 不存在`);
-        }
-      } else {
-        parentCallee = getParentCallee();
-      }
+    const getFunInfos = () => {
+      const { parent, lastKey } = getParentAndLastKey();
       const params = getParams() as any[];
-      return { callee, parentCallee, params };
+      return { parent, lastKey, params };
     };
 
     const noFunction = (type) => {
@@ -1205,65 +1285,233 @@ export default class Customize {
       throw new Error(`非函数类型： ${_.isArray(calleeDsl) ? (calleeDsl as DslJson[]).join('.') : ((calleeDsl as DslJson)?.value || (calleeDsl as DslJson)?.v)}`);
     };
 
-    if (isClass) {
-      return () => {
-        const {callee, params} = getFunInfos('class');
-        if (_.isFunction(callee)) {
-          return new callee(...params);
+    // 极简情况
+    if (dslLen === 1) {
+      if (isClass) {
+        switch(paramsDsl?.length || 0) {
+          case 0:
+            return () => {
+              const { parent: callee } = getFunInfos();
+              return new callee;
+            };
+          case 1:
+            return () => {
+              const { parent: callee, params } = getFunInfos();
+              return new callee(params[0]);
+            };
+          case 2:
+            return () => {
+              const { parent: callee, params } = getFunInfos();
+              return new callee(params[0], params[1]);
+            };
+          case 3:
+            return () => {
+              const { parent: callee, params } = getFunInfos();
+              return new callee(params[0], params[1], params[2]);
+            };
+          case 4:
+            return () => {
+              const { parent: callee, params } = getFunInfos();
+              return new callee(params[0], params[1], params[2], params[3]);
+            };
+          case 5:
+            return () => {
+              const { parent: callee, params } = getFunInfos();
+              return new callee(params[0], params[1], params[2], params[3], params[4]);
+            };
+          case 6:
+            return () => {
+              const { parent: callee, params } = getFunInfos();
+              return new callee(params[0], params[1], params[2], params[3], params[4], params[5]);
+            };
+          case 7:
+            return () => {
+              const { parent: callee, params } = getFunInfos();
+              return new callee(params[0], params[1], params[2], params[3], params[4], params[5], params[6]);
+            };
+          case 8:
+            return () => {
+              const { parent: callee, params } = getFunInfos();
+              return new callee(params[0], params[1], params[2], params[3], params[4], params[5], params[6], params[7]);
+            };
+          case 9:
+            return () => {
+              const { parent: callee, params } = getFunInfos();
+              return new callee(params[0], params[1], params[2], params[3], params[4], params[5], params[6], params[7], params[8]);
+            };
+          case 10:
+            return () => {
+              const { parent: callee, params } = getFunInfos();
+              return new callee(params[0], params[1], params[2], params[3], params[4], params[5], params[6], params[7], params[8], params[9]);
+            };
+          default:
+        }
+        return () => {
+          const { parent: callee, params } = getFunInfos();
+          try {
+            return new callee(...params);
+          } catch {
+            noFunction('class');
+          }
         };
-        noFunction('class');
-      };
+      }
+      switch (paramsDsl?.length || 0) {
+        case 0:
+          return () => {
+            const { parent: callee } = getFunInfos();
+            return callee();
+          };
+        case 1:
+          return () => {
+            const { parent: callee, params } = getFunInfos();
+            return callee(params[0]);
+          };
+        case 2:
+          return () => {
+            const { parent: callee, params } = getFunInfos();
+            return callee(params[0], params[1]);
+          };
+        case 3:
+          return () => {
+            const { parent: callee, params } = getFunInfos();
+            return callee(params[0], params[1], params[2]);
+          };
+        case 4:
+          return () => {
+            const { parent: callee, params } = getFunInfos();
+            return callee(params[0], params[1], params[2], params[3]);
+          };
+        case 5:
+          return () => {
+            const { parent: callee, params } = getFunInfos();
+            return callee(params[0], params[1], params[2], params[3], params[4]);
+          };
+        case 6:
+          return () => {
+            const { parent: callee, params } = getFunInfos();
+            return callee(params[0], params[1], params[2], params[3], params[4], params[5]);
+          };
+        case 7:
+          return () => {
+            const { parent: callee, params } = getFunInfos();
+            return callee(params[0], params[1], params[2], params[3], params[4], params[5], params[6]);
+          };
+        case 8:
+          return () => {
+            const { parent: callee, params } = getFunInfos();
+            return callee(params[0], params[1], params[2], params[3], params[4], params[5], params[6], params[7]);
+          };
+        case 9:
+          return () => {
+            const { parent: callee, params } = getFunInfos();
+            return callee(params[0], params[1], params[2], params[3], params[4], params[5], params[6], params[7], params[8]);
+          };
+        case 10:
+          return () => {
+            const { parent: callee, params } = getFunInfos();
+            return callee(params[0], params[1], params[2], params[3], params[4], params[5], params[6], params[7], params[8], params[9]);
+          };
+        case 11:
+          return () => {
+            const { parent: callee, params } = getFunInfos();
+            return callee(params[0], params[1], params[2], params[3], params[4], params[5], params[6], params[7], params[8], params[9], params[10]);
+          };
+        default:
+          return () => {
+            const { parent: callee, params } = getFunInfos();
+            return callee(...params);
+          };
+      }
     }
 
-    // canvasContextApi 特殊处理
-    if (isCanvasContextApi) {
+    if (isClass) {
       return () => {
-        const {parentCallee, params} = getFunInfos('canvasContextApi');
-        if (_.isFunction(parentCallee[lastMember])) {
-          return parentCallee[lastMember](...params);
+        const {parent, lastKey, params} = getFunInfos();
+        try {
+          return new parent[lastKey](...params);
+        } catch {
+          noFunction('class');
         }
-        noFunction('canvasContextApi');
       };
     }
 
     switch(lastMember) {
       case 'call':
-        return () => {
-          const {parentCallee, params} = getFunInfos('call');
-          if (!parentCallee.call.prototype && _.isFunction(parentCallee.call)) {
-            try {
-              return parentCallee.call(...params);
-            } catch (err) {
-              console.log('-----call 错误：', { params, paramsDsl, calleeDsl, parentCallee, err }, this.varScope);
-              throw err;
-            }
-          }
-          noFunction('call');
-        };
       case 'apply':
-        return () => {
-          const {parentCallee, params} = getFunInfos('apply');
-          if (!parentCallee.apply.prototype && _.isFunction(parentCallee.apply)) {
-            return parentCallee.apply(...params);
-          }
-          noFunction('apply');
-        };
       case 'bind':
         return () => {
-          const {parentCallee, params} = getFunInfos('bind');
-          if (!parentCallee.bind.prototype && _.isFunction(parentCallee.bind)) {
-            return parentCallee.bind(...params);
+          const {parent, lastKey, params} = getFunInfos();
+          try {
+            return parent[lastKey](...params);
+          } catch (err) {
+            console.log(`-----${lastKey} 错误：`, { params, paramsDsl, calleeDsl, parent, lastKey, err }, this.varScope);
+            // noFunction(lastKey);
+            throw err;
           }
-          noFunction('bind');
         };
       default:
-        return () => {
-          const {callee, params} = getFunInfos('default');
-          if (_.isFunction(callee)) {
-            return callee(...params);
-          }
-          noFunction('default');
-        };
+        switch(paramsDsl?.length || 0) {
+          case 0:
+            return () => {
+              const {parent, lastKey} = getFunInfos();
+              return parent[lastKey]();
+            };
+          case 1:
+            return () => {
+              const {parent, lastKey, params} = getFunInfos();
+              return parent[lastKey](params[0]);
+            };
+          case 2:
+            return () => {
+              const {parent, lastKey, params} = getFunInfos();
+              return parent[lastKey](params[0], params[1]);
+            };
+          case 3:
+            return () => {
+              const {parent, lastKey, params} = getFunInfos();
+              return parent[lastKey](params[0], params[1], params[2]);
+            };
+          case 4:
+            return () => {
+              const {parent, lastKey, params} = getFunInfos();
+              return parent[lastKey](params[0], params[1], params[2], params[3]);
+            };
+          case 5:
+            return () => {
+              const {parent, lastKey, params} = getFunInfos();
+              return parent[lastKey](params[0], params[1], params[2], params[3], params[4]);
+            };
+          case 6:
+            return () => {
+              const {parent, lastKey, params} = getFunInfos();
+              return parent[lastKey](params[0], params[1], params[2], params[3], params[4], params[5]);
+            };
+          case 7:
+            return () => {
+              const {parent, lastKey, params} = getFunInfos();
+              return parent[lastKey](params[0], params[1], params[2], params[3], params[4], params[5], params[6]);
+            };
+          case 8:
+            return () => {
+              const {parent, lastKey, params} = getFunInfos();
+              return parent[lastKey](params[0], params[1], params[2], params[3], params[4], params[5], params[6], params[7]);
+            };
+          case 9:
+            return () => {
+              const {parent, lastKey, params} = getFunInfos();
+              return parent[lastKey](params[0], params[1], params[2], params[3], params[4], params[5], params[6], params[7], params[8]);
+            };
+          case 10:
+            return () => {
+              const {parent, lastKey, params} = getFunInfos();
+              return parent[lastKey](params[0], params[1], params[2], params[3], params[4], params[5], params[6], params[7], params[8], params[9]);
+            };
+          default:
+            return () => {
+              const {parent, lastKey, params} = getFunInfos();
+              return parent[lastKey](...params);
+            };
+        }
     }
   }
   // tryCatch 语句
@@ -1304,15 +1552,19 @@ export default class Customize {
     return () => {
       const discriminant = getDiscriminant();
       testList.some((getTest, index) => {
+        const currentVarScope = this.varScope;
         const test = getTest();
         // test === null 表示 default 分支
         if (test === discriminant || test === null) {
           for(let i = index; i < testList.length; ++i) {
             const caseClause = caseClauseList[i];
             caseClause();
-            if (this.varScope.__isBreak__) {
+            if (currentVarScope.__isBreak__) {
               // case 执行了 break
-              this.varScope.__isBreak__ = false;
+              currentVarScope.__isBreak__ = currentVarScope.__keepBreaking__;
+              break;
+            } else if (currentVarScope.__returnObject__) {
+              // 遇到 return 语句
               break;
             }
           }
@@ -1335,17 +1587,21 @@ export default class Customize {
   }
   // 添加标记
   addLabel(label: string) {
-    return () => {
-      this.varScope.__tmpLabel__ = label;
-      return _.noop;
-    };
+    this.varScope.__tmpLabel__ = label;
+    this.varScope.__labels__.push(label);
+    return () => _.noop;
   }
   // 移除标记
   removeLabel() {
-    return () => {
-      delete this.varScope.__tmpLabel__;
-      return _.noop;
-    };
+    delete this.varScope.__tmpLabel__;
+    return () => _.noop;
+  }
+  callLabelStatement(labelStatement: DslJson[]) {
+    const [addLabelDsl, loopStatement, removeLabelDsl] = labelStatement;
+    dslResolve(addLabelDsl, this);
+    const resolve = dslResolve(loopStatement, this);
+    dslResolve(removeLabelDsl, this);
+    return () => resolve();
   }
   // 返回普通字面量
   getLiteral(value: any) {
@@ -1381,8 +1637,12 @@ export default class Customize {
   // 返回 数组字面量
   getArrayLiteral(value: any[]) {
     const getArrayItems = ([...value]).map((item: any) => dslResolve(item, this));
+    const len = getArrayItems.length;
     return () => {
-      const array = getArrayItems.map(getArrayItem => getArrayItem());
+      const array: any[] = [];
+      for(let i = 0; i< len; ++i) {
+        array[i] = getArrayItems[i]();
+      }
       return array;
     };
   }

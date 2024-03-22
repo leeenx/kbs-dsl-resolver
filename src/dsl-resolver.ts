@@ -2,7 +2,7 @@
 import * as _ from 'lodash-es';
 import Customize from './customize';
 
-const types = ['literal', 'arguments', 'array-literal', 'object-literal', 'call-function', 'customize-function', 'declare-function', 'component', 'this', 'prefix-vars', 'member', 'c', 'f', 'd', 'a', 'o', 'l', 't', 'p', 'm'];
+const types = ['literal', 'arguments', 'array-literal', 'object-literal', 'call-function', 'customize-function', 'declare-function', 'component', 'this', 'prefix-vars', 'member', 'label-statement', 'c', 'f', 'd', 'a', 'o', 'l', 't', 'p', 'm', 'ls'];
 type Type = typeof types[number];
 
 export interface DslJson {
@@ -76,6 +76,9 @@ const dslResolve = (
       case 'member':
       case 'm':
         return customize.getObjMember(value);
+      case 'label-statement':
+      case 'ls':
+        return customize.callLabelStatement(value);
       /**
        * 直接调用内置解析函数
        * 当 name 为 callFun 时，才是逻辑上的调用函数
