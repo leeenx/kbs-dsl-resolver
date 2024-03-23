@@ -189,10 +189,17 @@ export default class Customize {
     __hasReturnStatement__: false, // 是否有 return 语句（预解析过程需要用到它来提高最后的执行速度）
     __containFunction__: false, // 是否包含定义子函数（预解析过程需要用到它来提高最后的执行速度）
   };
+  checkMemberExpression(dsl: DslJson) {
+    return dsl.t === 'm' || dsl.type === 'member';
+  }
+  getMemberExpressionValue(dsl: DslJson) {
+    const memberExpressionValue = (dsl.v || dsl.value) as DslJson[];
+    return memberExpressionValue;
+  }
   // 获取值
-  getValue(valueDsl: DslJson | DslJson[], ignoreBind = true, returnParent?: Function) {
-    const isMemberExpression = _.isArray(valueDsl);
-    return !isMemberExpression ? dslResolve(valueDsl as DslJson, this) : this.getObjMember(valueDsl as DslJson[], ignoreBind, returnParent);
+  getValue(valueDsl: DslJson, ignoreBind = true, returnParent?: Function) {
+    const isMemberExpression = this.checkMemberExpression(valueDsl);
+    return !isMemberExpression ? dslResolve(valueDsl, this) : this.getObjMember(valueDsl, ignoreBind, returnParent);
   }
   updateVarScope(currentVarScope) {
     const lastIndex = execScopeStack.length - 1;
@@ -208,7 +215,7 @@ export default class Customize {
     return false;
   }
   // let
-  let(key: string, valueDsl?: DslJson | DslJson[], isVarKind: boolean = false, onlyDeclare: boolean = false) {
+  let(key: string, valueDsl?: DslJson, isVarKind: boolean = false, onlyDeclare: boolean = false) {
     const varScope = this.varScope;
     if (_.has(varScope, key)) {
       if (isVarKind) {
@@ -248,7 +255,7 @@ export default class Customize {
     }
   }
   // var
-  var(key: string, valueDsl?: DslJson | DslJson[], onlyDeclare: boolean = false) {
+  var(key: string, valueDsl?: DslJson, onlyDeclare: boolean = false) {
     return this.let(key, valueDsl, true, onlyDeclare);
   }
   batchVar(list: { key: string, value: any, k?: string, v?: any }[]) {
@@ -312,13 +319,14 @@ export default class Customize {
     return this.getLet(key);
   }
   // 获取对象的成员
-  getObjMember(keyPathOfDsl: DslJson[], ignoreBind = true, returnParent?: Function) {
+  getObjMember(memberDsl: DslJson, ignoreBind = true, returnParent?: Function) {
+    const keyPathOfDsl = this.getMemberExpressionValue(memberDsl);
     return this.getOrAssignOrDissocPath(keyPathOfDsl, undefined, undefined, 'get', ignoreBind, returnParent);
   }
   // 取值、赋值与删除对象成员 
   getOrAssignOrDissocPath(
     keyPathOfDsl: (string | DslJson)[],
-    valueDsl?: DslJson | DslJson[],
+    valueDsl?: DslJson,
     operator?: AssignmentOperator,
     type: 'get' | 'parentAndLastKey' | 'assign' | 'dissocPath' = 'get',
     ignoreBind: boolean = true,
@@ -330,9 +338,6 @@ export default class Customize {
       };
     }
     const keyPathCalls = keyPathOfDsl.map((item, index) => {
-      if (index > 0 && _.isArray(item)) {
-        return this.getValue(item);
-      }
       if (_.isString(item) || _.isNumber(item)) return () => item;
       const { t, type } = item as DslJson;
       // 字面量特殊处理
@@ -342,7 +347,7 @@ export default class Customize {
         keyPathOfDsl[index] = value;
         return () => value;
       }
-      return dslResolve(item, this, false, false, `getOrAssignOrDissocPath | ${type} | ${JSON.stringify(keyPathOfDsl)}`);
+      return dslResolve(item, this, false, false);
     }) as any[];
     // 表示对象的根名称
     const [firstKeyCall] = keyPathCalls;
@@ -632,7 +637,8 @@ export default class Customize {
       };
     }
   }
-  assignLet(keyPathOfDsl: (string | DslJson)[], valueDsl?: DslJson | DslJson[], operator?: AssignmentOperator) {
+  assignLet(keyDsl: DslJson, valueDsl?: DslJson, operator?: AssignmentOperator) {
+    const keyPathOfDsl = this.checkMemberExpression(keyDsl) ? this.getMemberExpressionValue(keyDsl) : [keyDsl];
     return this.getOrAssignOrDissocPath(keyPathOfDsl, valueDsl, operator, 'assign');
   }
   // 按操作符赋值
@@ -668,11 +674,8 @@ export default class Customize {
         return _.noop;
     }
   }
-  setLet(key: string, value?: any) {
-    return this.assignLet([key], value);
-  }
   // 返回值
-  callReturn(dslJson: DslJson | DslJson[]) {
+  callReturn(dslJson: DslJson) {
     this.varScope.__hasReturnStatement__ = true;
     // 标记已经返回
     const preGetValue = dslJson ? this.getValue(dslJson) : _.noop;
@@ -724,8 +727,8 @@ export default class Customize {
     }
   }
   // 一元运算
-  callUnary(operator: UnaryOperator, valueDsl: DslJson | DslJson[]) {
-    const isMemberExpression = _.isArray(valueDsl);
+  callUnary(operator: UnaryOperator, valueDsl: DslJson) {
+    const isMemberExpression = this.checkMemberExpression(valueDsl);
     const preGetValue = this.getValue(valueDsl);
     switch(operator) {
       case "-":
@@ -742,7 +745,7 @@ export default class Customize {
         return () => void preGetValue();
       case "delete":
         if (isMemberExpression) {
-          const doDelete: any = this.getOrAssignOrDissocPath(valueDsl as DslJson[], undefined, undefined, 'dissocPath');
+          const doDelete: any = this.getOrAssignOrDissocPath(this.getMemberExpressionValue(valueDsl), undefined, undefined, 'dissocPath');
           return () => doDelete();
         }
         // 不会报错，但是不会删除成员
@@ -754,7 +757,7 @@ export default class Customize {
     }
   }
   // 二元运算
-  callBinary(leftDsl: DslJson | DslJson[], operator: BinaryOperator, rightDsl: DslJson | DslJson[]) {
+  callBinary(leftDsl: DslJson, operator: BinaryOperator, rightDsl: DslJson) {
     const getLeft = this.getValue(leftDsl);
     const getRight = this.getValue(rightDsl);
     switch(operator) {
@@ -807,8 +810,8 @@ export default class Customize {
     }
   }
   // 更新
-  callUpdate(operator: UpdateOperator, argument: DslJson | DslJson[], prefix: boolean) {
-    const keyPathDsl = (_.isArray(argument) ? argument : [argument]) as DslJson[];
+  callUpdate(operator: UpdateOperator, argument: DslJson, prefix: boolean) {
+    const keyPathDsl = this.checkMemberExpression(argument) ? this.getMemberExpressionValue(argument) : [argument];
     const getParentAndLastKey = this.getOrAssignOrDissocPath(keyPathDsl, undefined, undefined, 'parentAndLastKey') as Function;
     switch(true) {
       case prefix && operator === '++':
@@ -834,7 +837,7 @@ export default class Customize {
     }
   }
   // 逻辑运算
-  callLogical(leftDsl: DslJson | DslJson[], operator: LogicalOperator, rightDsl: DslJson | DslJson[]) {
+  callLogical(leftDsl: DslJson, operator: LogicalOperator, rightDsl: DslJson) {
     const getLeft = this.getValue(leftDsl);
     const getRight = this.getValue(rightDsl);
     switch(operator) {
@@ -845,14 +848,14 @@ export default class Customize {
     }
   }
   // 抛锚
-  callThrow(argument: DslJson | DslJson[]) {
+  callThrow(argument: DslJson) {
     const preGetValue = this.getValue(argument);
     return () => {
       throw preGetValue();
     };
   }
   // while
-  callWhile(test: DslJson | DslJson[], body: DslJson) {
+  callWhile(test: DslJson, body: DslJson) {
     const testCall = this.getValue(test);
     const resolveCall = body ? dslResolve(body, this, true) : _.noop;
     return () => {
@@ -876,7 +879,7 @@ export default class Customize {
   }
 
   // doWhile
-  callDoWhile(test: DslJson | DslJson[], body: DslJson) {
+  callDoWhile(test: DslJson, body: DslJson) {
     const resolveCall = body ? dslResolve(body, this, true) : _.noop;
     const callWhile = this.callWhile(test, body);
     return () => {
@@ -893,7 +896,7 @@ export default class Customize {
   // for
   callFor(
     init: DslJson,
-    test: DslJson | DslJson[],
+    test: DslJson,
     update,
     body
   ) {
@@ -923,14 +926,14 @@ export default class Customize {
   }
 
   // for...in
-  callForIn(leftDsl: DslJson | DslJson[], rightDsl: DslJson | DslJson[], body: DslJson) {
+  callForIn(leftDsl: DslJson, rightDsl: DslJson, body: DslJson) {
     const getTargetObj = this.getValue(rightDsl);
-    const isMemberExpression = _.isArray(leftDsl);
+    const isMemberExpression = this.checkMemberExpression(leftDsl);
     let resolveLeft: any = _.noop;
 
     if (isMemberExpression) {
       // 赋值表达式
-      resolveLeft = this.assignLet(leftDsl as DslJson[]);
+      resolveLeft = this.assignLet(leftDsl);
     } else {
       const dsl = leftDsl as DslJson;
       const leftDslValue = dsl.v || dsl.value;
@@ -1220,7 +1223,7 @@ export default class Customize {
     );
   }
   // ifElse 函数改造
-  callIfElse(conditionDsl: DslJson | DslJson[], onTrue: DslJson, onFail: DslJson) {
+  callIfElse(conditionDsl: DslJson, onTrue: DslJson, onFail: DslJson) {
     const getCondition = this.getValue(conditionDsl);
     const resolveTrue = dslResolve(onTrue, this);
     const resolveFail = onFail ? dslResolve(onFail, this) : _.noop;
@@ -1229,7 +1232,7 @@ export default class Customize {
     };
   }
   // 三元运算
-  callConditional(conditionDsl: DslJson | DslJson[], onTrueDsl: DslJson, onFailDsl: DslJson) {
+  callConditional(conditionDsl: DslJson, onTrueDsl: DslJson, onFailDsl: DslJson) {
     const getCondition = this.getValue(conditionDsl);
     const getTrue = this.getValue(onTrueDsl);
     const getFail = this.getValue(onFailDsl);
@@ -1243,12 +1246,12 @@ export default class Customize {
     return () => new RegExp(pattern, modifiers);
   }
   // new Class
-  newClass(calleeDsl: DslJson | DslJson[], paramsDsl?: DslJson[]) {
+  newClass(calleeDsl: DslJson, paramsDsl?: DslJson[]) {
     return this.callFun(calleeDsl, paramsDsl, true);
   }
   // 调用方法
-  callFun(calleeDsl: DslJson | DslJson[], paramsDsl?: DslJson[], isClass = false) {
-    calleeDsl = _.isArray(calleeDsl) ? calleeDsl : [calleeDsl];
+  callFun(calleeDslJson: DslJson, paramsDsl?: DslJson[], isClass = false) {
+    const calleeDsl: DslJson[] = this.checkMemberExpression(calleeDslJson) ? this.getMemberExpressionValue(calleeDslJson) : [calleeDslJson];
     const getParentAndLastKey = this.getOrAssignOrDissocPath(calleeDsl, undefined, undefined, 'parentAndLastKey') as Function;
     const dslLen = (calleeDsl as DslJson[]).length;
     const lastIndex = dslLen - 1;
@@ -1537,7 +1540,7 @@ export default class Customize {
     };
   }
   // switch 语句
-  callSwitch(discriminantDsl: DslJson | DslJson[], casesDsl: [DslJson | DslJson[], DslJson[]][]) {
+  callSwitch(discriminantDsl: DslJson, casesDsl: [DslJson, DslJson[]][]) {
     const getDiscriminant = this.getValue(discriminantDsl);
     // 所有的语句
     const caseClauseList: any[] = [];
@@ -1576,7 +1579,11 @@ export default class Customize {
   }
   // sequence
   callSequence(dslList: DslJson[]) {
-    const sequenceCalls = dslList.map(item => _.isArray(item) ? this.getObjMember(item as DslJson[]) : dslResolve(item, this));
+    const sequenceCalls = (
+      dslList.map(item => this.checkMemberExpression(item)
+        ? this.getObjMember(item)
+        : dslResolve(item, this))
+    );
     return () => {
       let result: any;
       sequenceCalls.forEach(item => {

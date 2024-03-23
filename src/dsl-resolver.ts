@@ -18,13 +18,11 @@ export interface DslJson {
   body?: DslJson[];
   b?: DslJson[];
 }
-
 const dslResolve = (
   dslJson: DslJson | string,
   customize?: Customize,
   isLoopContentStatement: boolean = false,
   preResolve: boolean = false,
-  tag?: any
 ) => {
   // 变量的上下文也在这里
   if (_.isObject(dslJson)) {
@@ -40,10 +38,6 @@ const dslResolve = (
       (!_.has(dslJson, 'type') && !_.has(dslJson, 't')) || // 直接的 type 属性不存在
       !types.includes(type!)
     ) {
-      // memberExpression
-      if (_.isArray(dslJson)) {
-        return customize.getObjMember(dslJson as DslJson[]);
-      }
       // 直接返回
       return () => dslJson as any;
     }
@@ -75,7 +69,7 @@ const dslResolve = (
         return customize.batchVar(value.map(key => ({ key })));
       case 'member':
       case 'm':
-        return customize.getObjMember(value);
+        return customize.getObjMember(dslJson as DslJson);
       case 'label-statement':
       case 'ls':
         return customize.callLabelStatement(value);
@@ -90,7 +84,7 @@ const dslResolve = (
         if (customize[name as keyof Customize]) {
           // 优先从「customize」找
           if (isLoopContentStatement) {
-            if (name === 'callBlockStatement') {
+            if (['callBlockStatement', 'cBS'].includes(name)) {
               return customize.callBlockStatement(functionParams[0], true, true);
             }
             /**
