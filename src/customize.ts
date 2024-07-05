@@ -121,6 +121,57 @@ const execScopeStack: Customize["varScope"][] = [];
 
 let scopeId = 0;
 
+// 替换 _.get 的方法
+const getMemberCall = (count: number) => {
+  switch(count) {
+    case 0:
+      return (target: any, keyPath: string[]) => target;
+    case 1:
+      return (target: any, keyPath: string[]) => target[keyPath[0]];
+    case 2:
+      return (target: any, keyPath: string[]) => target[keyPath[0]][keyPath[1]];
+    case 3:
+      return (target: any, keyPath: string[]) => target[keyPath[0]][keyPath[1]][keyPath[2]];
+    case 4:
+      return (target: any, keyPath: string[]) => target[keyPath[0]][keyPath[1]][keyPath[2]][keyPath[3]];
+    case 5:
+      return (target: any, keyPath: string[]) => target[keyPath[0]][keyPath[1]][keyPath[2]][keyPath[3]][keyPath[4]];
+    case 6:
+      return (target: any, keyPath: string[]) => target[keyPath[0]][keyPath[1]][keyPath[2]][keyPath[3]][keyPath[4]][keyPath[5]];
+    case 7:
+      return (target: any, keyPath: string[]) => target[keyPath[0]][keyPath[1]][keyPath[2]][keyPath[3]][keyPath[4]][keyPath[5]][keyPath[6]];
+    case 8:
+      return (target: any, keyPath: string[]) => target[keyPath[0]][keyPath[1]][keyPath[2]][keyPath[3]][keyPath[4]][keyPath[5]][keyPath[6]][keyPath[7]];
+    case 9:
+      return (target: any, keyPath: string[]) => target[keyPath[0]][keyPath[1]][keyPath[2]][keyPath[3]][keyPath[4]][keyPath[5]][keyPath[6]][keyPath[7]][keyPath[8]];
+    case 10:
+      return (target: any, keyPath: string[]) => target[keyPath[0]][keyPath[1]][keyPath[2]][keyPath[3]][keyPath[4]][keyPath[5]][keyPath[6]][keyPath[7]][keyPath[8]][keyPath[9]];
+    case 11:
+      return (target: any, keyPath: string[]) => target[keyPath[0]][keyPath[1]][keyPath[2]][keyPath[3]][keyPath[4]][keyPath[5]][keyPath[6]][keyPath[7]][keyPath[8]][keyPath[9]][keyPath[10]];
+    case 12:
+      return (target: any, keyPath: string[]) => target[keyPath[0]][keyPath[1]][keyPath[2]][keyPath[3]][keyPath[4]][keyPath[5]][keyPath[6]][keyPath[7]][keyPath[8]][keyPath[9]][keyPath[10]][keyPath[11]];
+    case 13:
+      return (target: any, keyPath: string[]) => target[keyPath[0]][keyPath[1]][keyPath[2]][keyPath[3]][keyPath[4]][keyPath[5]][keyPath[6]][keyPath[7]][keyPath[8]][keyPath[9]][keyPath[10]][keyPath[11]][keyPath[12]];
+    case 14:
+      return (target: any, keyPath: string[]) => target[keyPath[0]][keyPath[1]][keyPath[2]][keyPath[3]][keyPath[4]][keyPath[5]][keyPath[6]][keyPath[7]][keyPath[8]][keyPath[9]][keyPath[10]][keyPath[11]][keyPath[12]][keyPath[13]];
+    case 15:
+      return (target: any, keyPath: string[]) => target[keyPath[0]][keyPath[1]][keyPath[2]][keyPath[3]][keyPath[4]][keyPath[5]][keyPath[6]][keyPath[7]][keyPath[8]][keyPath[9]][keyPath[10]][keyPath[11]][keyPath[12]][keyPath[13]][keyPath[14]];
+    case 16:
+      return (target: any, keyPath: string[]) => target[keyPath[0]][keyPath[1]][keyPath[2]][keyPath[3]][keyPath[4]][keyPath[5]][keyPath[6]][keyPath[7]][keyPath[8]][keyPath[9]][keyPath[10]][keyPath[11]][keyPath[12]][keyPath[13]][keyPath[14]][keyPath[15]];
+    case 17:
+      return (target: any, keyPath: string[]) => target[keyPath[0]][keyPath[1]][keyPath[2]][keyPath[3]][keyPath[4]][keyPath[5]][keyPath[6]][keyPath[7]][keyPath[8]][keyPath[9]][keyPath[10]][keyPath[11]][keyPath[12]][keyPath[13]][keyPath[14]][keyPath[15]][keyPath[16]];
+    case 18:
+      return (target: any, keyPath: string[]) => target[keyPath[0]][keyPath[1]][keyPath[2]][keyPath[3]][keyPath[4]][keyPath[5]][keyPath[6]][keyPath[7]][keyPath[8]][keyPath[9]][keyPath[10]][keyPath[11]][keyPath[12]][keyPath[13]][keyPath[14]][keyPath[15]][keyPath[16]][keyPath[17]];
+    case 19:
+      return (target: any, keyPath: string[]) => target[keyPath[0]][keyPath[1]][keyPath[2]][keyPath[3]][keyPath[4]][keyPath[5]][keyPath[6]][keyPath[7]][keyPath[8]][keyPath[9]][keyPath[10]][keyPath[11]][keyPath[12]][keyPath[13]][keyPath[14]][keyPath[15]][keyPath[16]][keyPath[17]][keyPath[18]];
+    case 20:
+      return (target: any, keyPath: string[]) => target[keyPath[0]][keyPath[1]][keyPath[2]][keyPath[3]][keyPath[4]][keyPath[5]][keyPath[6]][keyPath[7]][keyPath[8]][keyPath[9]][keyPath[10]][keyPath[11]][keyPath[12]][keyPath[13]][keyPath[14]][keyPath[15]][keyPath[16]][keyPath[17]][keyPath[18]][keyPath[20]];
+    default:
+      console.warn('长度超20的 object', count);
+      return (target: any, keyPath: string[]) => _.get(target, keyPath);
+  }
+}
+
 // 自定义的方法
 export default class Customize {
   constructor(parentVarScope?: any) {
@@ -264,12 +315,13 @@ export default class Customize {
       const onlyDeclare = key ? !_.has(item, 'value') : !_.has(item, 'v');
       return key ? this.var(key, value, onlyDeclare) : this.var(k!, v, onlyDeclare)
     });
+    const len = list.length;
     return function() {
       const args = arguments;
-      return varCalls.forEach(varCall => {
-        const result = args.length ? varCall(args[0]) : varCall();
-        return result;
-      });
+      for(let i = 0; i < len; ++i) {
+        const varCall = varCalls[i];
+        args.length ? varCall(args[0]) : varCall();
+      }
     };
   }
   batchLet(list: { key: string, value: any }[]) {
@@ -305,7 +357,8 @@ export default class Customize {
     } else if (varScope === globalScope) {
       return () => globalScope[key];
     } else {
-      return () => _.get(this.varScope, keyPath)[key];
+      const getMember = getMemberCall(keyPath.length);
+      return () => getMember(this.varScope, keyPath)[key];
     }
   }
   getLet(key: string) {
@@ -323,7 +376,7 @@ export default class Customize {
     const keyPathOfDsl = this.getMemberExpressionValue(memberDsl);
     return this.getOrAssignOrDissocPath(keyPathOfDsl, undefined, undefined, 'get', ignoreBind, returnParent);
   }
-  // 取值、赋值与删除对象成员 
+  // 取值、赋值与删除对象成员
   getOrAssignOrDissocPath(
     keyPathOfDsl: (string | DslJson)[],
     valueDsl?: DslJson,
@@ -392,74 +445,8 @@ export default class Customize {
             if (parent === globalScope) {
               getTargetScope = () => globalScope;
             } else {
-              switch (parentKeyPath.length) {
-                case 1:
-                  getTargetScope = () => {
-                    return this.varScope.__parentVarScope__;
-                  };
-                  break;
-                case 2:
-                  getTargetScope = () => {
-                    return this.varScope.__parentVarScope__.__parentVarScope__;
-                  };
-                  break;
-                case 3:
-                  getTargetScope = () => {
-                    return this.varScope.__parentVarScope__.__parentVarScope__.__parentVarScope__;
-                  };
-                  break;
-                case 4:
-                  getTargetScope = () => {
-                    return this.varScope.__parentVarScope__.__parentVarScope__.__parentVarScope__.__parentVarScope__;
-                  };
-                  break;
-                case 5:
-                  getTargetScope = () => {
-                    return this.varScope.__parentVarScope__.__parentVarScope__.__parentVarScope__.__parentVarScope__.__parentVarScope__;
-                  };
-                  break;
-                case 6:
-                  getTargetScope = () => {
-                    return this.varScope.__parentVarScope__.__parentVarScope__.__parentVarScope__.__parentVarScope__.__parentVarScope__.__parentVarScope__;
-                  };
-                  break;
-                case 7:
-                  getTargetScope = () => {
-                    return this.varScope.__parentVarScope__.__parentVarScope__.__parentVarScope__.__parentVarScope__.__parentVarScope__.__parentVarScope__.__parentVarScope__;
-                  };
-                  break;
-                case 8:
-                  getTargetScope = () => {
-                    return this.varScope.__parentVarScope__.__parentVarScope__.__parentVarScope__.__parentVarScope__.__parentVarScope__.__parentVarScope__.__parentVarScope__.__parentVarScope__;
-                  };
-                  break;
-                case 9:
-                  getTargetScope = () => {
-                    return this.varScope.__parentVarScope__.__parentVarScope__.__parentVarScope__.__parentVarScope__.__parentVarScope__.__parentVarScope__.__parentVarScope__.__parentVarScope__.__parentVarScope__;
-                  };
-                  break;
-                case 10:
-                  getTargetScope = () => {
-                    return this.varScope.__parentVarScope__.__parentVarScope__.__parentVarScope__.__parentVarScope__.__parentVarScope__.__parentVarScope__.__parentVarScope__.__parentVarScope__.__parentVarScope__.__parentVarScope__;
-                  };
-                  break;
-                case 11:
-                  getTargetScope = () => {
-                    return this.varScope.__parentVarScope__.__parentVarScope__.__parentVarScope__.__parentVarScope__.__parentVarScope__.__parentVarScope__.__parentVarScope__.__parentVarScope__.__parentVarScope__.__parentVarScope__.__parentVarScope__;
-                  };
-                  break;
-                case 12:
-                  getTargetScope = () => {
-                    return this.varScope.__parentVarScope__.__parentVarScope__.__parentVarScope__.__parentVarScope__.__parentVarScope__.__parentVarScope__.__parentVarScope__.__parentVarScope__.__parentVarScope__.__parentVarScope__.__parentVarScope__.__parentVarScope__;
-                  };
-                  break;
-                default:
-                  console.log('parentKeyPath 超过10', parentKeyPath.length);
-                  getTargetScope = () => {
-                    return _.get(this.varScope, parentKeyPath);
-                  };
-                  break;
-              }
+              const getMember = getMemberCall(parentKeyPath.length);
+              getTargetScope = () => getMember(this.varScope, parentKeyPath);
             }
             break;
           }
@@ -469,8 +456,9 @@ export default class Customize {
       }
     }
     if (getTargetScope !== null) {
+      const getMember = getMemberCall(parentLen);
       const getParent = (targetScope, parentKeyPath) => {
-        return parentLen ? _.get(targetScope, parentKeyPath) : targetScope;
+        return parentLen ? getMember(targetScope, parentKeyPath) : targetScope;
       };
       const getParentKeyPath = () => {
         const parentKeyPath: any[] = [];
@@ -487,7 +475,7 @@ export default class Customize {
           return parent;
         });
       }
-      
+
       if (type === 'assign') {
         const preGetValue = valueDsl ? this.getValue(valueDsl) : _.noop;
         const getResult = this.getResultByOperator(operator);
@@ -511,6 +499,7 @@ export default class Customize {
             return parent[lastKey] = getResult(parent[lastKey], value);
           };
         }
+        const getMember = getMemberCall(parentLen + 1);
         return function() {
           const targetScope = getTargetScope();
           const parentKeyPath = getParentKeyPath();
@@ -521,7 +510,7 @@ export default class Customize {
             const parent = getParent(targetScope, parentKeyPath);
             // 要在 lastKey 之后调用 preGetValue
             const value = arguments.length ? arguments[0] : preGetValue();
-            const result = getResult(_.get(targetScope, keyPath), value);
+            const result = getResult(getMember(targetScope, keyPath), value);
             return parent[lastKey!] = result;
           }
         };
@@ -555,11 +544,13 @@ export default class Customize {
           // 简单模式
           const parentKeyPath = [...keyPathOfDsl];
           const lastDsl = parentKeyPath.pop() as string;
-          const getLastKey = () => lastKeyIsSimple ? lastDsl : lastKeyCall();
+          // const getLastKey = () => lastKeyIsSimple ? lastDsl : lastKeyCall();
+          const getLastKey = lastKeyIsSimple ? () => lastDsl : lastKeyCall;
           if (type === 'parentAndLastKey') {
+            const getMember = getMemberCall(parentKeyPath.length);
             return () => {
               const targetScope = getTargetScope();
-              const parent = _.get(targetScope, parentKeyPath);
+              const parent = getMember(targetScope, parentKeyPath as string[]);
               return { parent, lastKey: getLastKey() };
             };
           }
@@ -586,9 +577,10 @@ export default class Customize {
                 return targetScope[one][two][three][four][getLastKey()];
               };
             default:
+              const getMember = getMemberCall(keyPathOfDsl.length);
               return () => {
                 const targetScope = getTargetScope();
-                return _.get(targetScope, keyPathOfDsl);;
+                return getMember(targetScope, keyPathOfDsl as string[]);
               };
           }
         }
@@ -610,7 +602,6 @@ export default class Customize {
           const parent = getParent(targetScope, parentKeyPath);
           if (!_.isNil(parent)) {
             // keyPath 找得到，返回结果
-            // return _.get(targetScope, keyPath);
             return parent[lastKey];
           }
           if (_.isUndefined(parent)) {
@@ -857,7 +848,59 @@ export default class Customize {
   // while
   callWhile(test: DslJson, body: DslJson) {
     const testCall = this.getValue(test);
+    let hasBreakStatement = false;
+    let hasContinueStatement = false;
+    let hasReturnStatement = false;
     const resolveCall = body ? dslResolve(body, this, true) : _.noop;
+    if (body) {
+      hasBreakStatement = this.varScope.__hasBreakStatement__;
+      hasContinueStatement = this.varScope.__hasContinueStatement__;
+      hasReturnStatement = this.varScope.__hasReturnStatement__;
+    }
+    if (!hasBreakStatement && !hasContinueStatement && !hasReturnStatement) {
+      return () => {
+        const currentVarScope = this.varScope;
+        while(testCall()) {
+          resolveCall();
+        }
+      };
+    }
+    if (hasBreakStatement && !hasContinueStatement && !hasReturnStatement) {
+      return () => {
+        const currentVarScope = this.varScope;
+        while(testCall()) {
+          resolveCall();
+          if (currentVarScope.__isBreak__) {
+            currentVarScope.__isBreak__ = currentVarScope.__keepBreaking__;
+            break;
+          }
+        }
+      };
+    }
+    if (!hasBreakStatement && hasContinueStatement && !hasReturnStatement) {
+      return () => {
+        const currentVarScope = this.varScope;
+        while(testCall()) {
+          resolveCall();
+          if (currentVarScope.__isContinute__) {
+            currentVarScope.__isContinute__ = currentVarScope.__keepContinue__;
+            continue;
+          }
+        }
+      };
+    }
+    if (!hasBreakStatement && !hasContinueStatement && hasReturnStatement) {
+      return () => {
+        const currentVarScope = this.varScope;
+        while(testCall()) {
+          resolveCall();
+          if (currentVarScope.__returnObject__) {
+            // 遇到 return 语句
+            break;
+          }
+        }
+      };
+    }
     return () => {
       const currentVarScope = this.varScope;
       while(testCall()) {
@@ -903,8 +946,60 @@ export default class Customize {
     const resolveInit = init ? dslResolve(init, this) : _.noop;
     const resolveTest = test ? this.getValue(test) : () => true;
     const resolveUpdate = update ? dslResolve(update, this) : _.noop;
-    
+
+    let hasBreakStatement = false;
+    let hasContinueStatement = false;
+    let hasReturnStatement = false;
+
     const resolveBody = body ? dslResolve(body, this, true) : _.noop;
+    if (body) {
+      hasBreakStatement = this.varScope.__hasBreakStatement__;
+      hasContinueStatement = this.varScope.__hasContinueStatement__;
+      hasReturnStatement = this.varScope.__hasReturnStatement__;
+    }
+    if (!hasBreakStatement && !hasContinueStatement && !hasReturnStatement) {
+      return () => {
+        for(resolveInit(); resolveTest(); resolveUpdate()) {
+          resolveBody();
+        }
+      };
+    }
+    if (hasBreakStatement && !hasContinueStatement && !hasReturnStatement) {
+      return () => {
+        const currentVarScope = this.varScope;
+        for(resolveInit(); resolveTest(); resolveUpdate()) {
+          resolveBody();
+          if (currentVarScope.__isBreak__) {
+            currentVarScope.__isBreak__ = currentVarScope.__keepBreaking__;
+            break;
+          }
+        }
+      };
+    }
+    if (!hasBreakStatement && hasContinueStatement && !hasReturnStatement) {
+      return () => {
+        const currentVarScope = this.varScope;
+        for(resolveInit(); resolveTest(); resolveUpdate()) {
+          resolveBody();
+          if (currentVarScope.__isContinute__) {
+            currentVarScope.__isContinute__ = currentVarScope.__keepContinue__;
+            continue;
+          }
+        }
+      };
+    }
+    if (!hasBreakStatement && !hasContinueStatement && hasReturnStatement) {
+      return () => {
+        const currentVarScope = this.varScope;
+        for(resolveInit(); resolveTest(); resolveUpdate()) {
+          resolveBody();
+          if (currentVarScope.__returnObject__) {
+            // 遇到 return 语句
+            break;
+          }
+        }
+      };
+    }
     return () => {
       const currentVarScope = this.varScope;
       for(resolveInit(); resolveTest(); resolveUpdate()) {
@@ -942,7 +1037,73 @@ export default class Customize {
         resolveLeft = this.batchVar(leftDslValue[1]);
       }
     }
+    let hasBreakStatement = false;
+    let hasContinueStatement = false;
+    let hasReturnStatement = false;
+
     const resolveBody = dslResolve(body, this, true);
+
+    if (body) {
+      hasBreakStatement = this.varScope.__hasBreakStatement__;
+      hasContinueStatement = this.varScope.__hasContinueStatement__;
+      hasReturnStatement = this.varScope.__hasReturnStatement__;
+    }
+
+    if (!hasBreakStatement && !hasContinueStatement && !hasReturnStatement) {
+      return () => {
+        const currentVarScope = this.varScope;
+        const targetObj = getTargetObj();
+        for(const item in targetObj) {
+          resolveLeft(item);
+          resolveBody();
+        }
+      };
+    }
+
+    if (hasBreakStatement && !hasContinueStatement && !hasReturnStatement) {
+      return () => {
+        const currentVarScope = this.varScope;
+        const targetObj = getTargetObj();
+        for(const item in targetObj) {
+          resolveLeft(item);
+          resolveBody();
+          if (currentVarScope.__isBreak__) {
+            currentVarScope.__isBreak__ = currentVarScope.__keepBreaking__;
+            break;
+          }
+        }
+      };
+    }
+
+    if (!hasBreakStatement && hasContinueStatement && !hasReturnStatement) {
+      return () => {
+        const currentVarScope = this.varScope;
+        const targetObj = getTargetObj();
+        for(const item in targetObj) {
+          resolveLeft(item);
+          resolveBody();
+          if (currentVarScope.__isContinute__) {
+            currentVarScope.__isContinute__ = currentVarScope.__keepContinue__;
+            continue;
+          }
+        }
+      };
+    }
+
+    if (!hasBreakStatement && !hasContinueStatement && hasReturnStatement) {
+      return () => {
+        const currentVarScope = this.varScope;
+        const targetObj = getTargetObj();
+        for(const item in targetObj) {
+          resolveLeft(item);
+          resolveBody();
+          if (currentVarScope.__returnObject__) {
+            // 遇到 return 语句
+            break;
+          }
+        }
+      };
+    }
 
     return () => {
       const currentVarScope = this.varScope;
@@ -998,19 +1159,15 @@ export default class Customize {
     }
 
     // 初始化形参
+    const paramsLen = params.length;
     const initParams = (() => {
-      params.forEach((name, index) => {
-        /**
-         * 形参用 var 不用 const & let
-         * 值必须使用 DSL 格式
-         */
-        return customize.var(name!);
-      });
+      for(let i = 0; i < paramsLen; ++i) {
+        customize.var(params[i]!);
+      }
       return (args) => {
-        // paramItemInitList.forEach(itemInit => itemInit());
-        params.forEach((name, index) => {
-          customize.varScope[name] = args[index];
-        });
+        for(let i = 0; i < paramsLen; ++i) {
+          customize.varScope[params[i]] = args[i];
+        }
       };
     })();
 
@@ -1035,14 +1192,16 @@ export default class Customize {
     }
 
     // 函数声明上提
-    body.forEach(item => {
+    const bodyLen = body.length;
+    for(let i = 0; i < bodyLen; ++i) {
+      const item = body[i];
       if (item.t === 'd' || item.type === 'declare-function') {
         const functionName = item.n || item.name;
         if (functionName) {
           Object.assign(customize.varScope, { [functionName]: undefined });
         }
       }
-    });
+    }
 
     // 当前的 label 名
     const currentLabel = customize.varScope.__tmpLabel__;
@@ -1055,8 +1214,13 @@ export default class Customize {
     let hasReturnStatement = false;
 
     // body 预解析
-    const lines = body.map(item => {
-      if (!item) return _.noop;
+    const lines: any[] = [];
+    for(let i = 0; i < bodyLen; ++i) {
+      const item = body[i];
+      if (!item) {
+        lines[i] = _.noop;
+        continue;
+      }
       const execLine = dslResolve(item, customize);
       if(customize.varScope.__hasBreakStatement__) {
         hasBreakStatement = true;
@@ -1068,8 +1232,8 @@ export default class Customize {
         hasReturnStatement = true;
         customize.varScope.__hasReturnStatement__ = false; // 重置为 false，防止干扰其它 block
       }
-      return execLine;
-    });
+      lines[i] = execLine;
+    }
 
     if (!isBlockStatement) {
       lines.shift();
@@ -1082,23 +1246,24 @@ export default class Customize {
 
     const containFunction = customize.varScope.__containFunction__;
 
+    const len = lines.length;
+
     if (isBlockStatement) { // 块
       let execBlock: Function;
       if (!hasBreakStatement && !hasContinueStatement) {
         if (!hasReturnStatement) {
           execBlock = function() {
-            lines.forEach((execLine) => {
-              execLine();
-            });
+            for(let i = 0; i < len; ++i) {
+              lines[i]();
+            }
           };
         } else {
           execBlock = function() {
-            lines.some((execLine) => {
+            for(let i = 0; i < len; ++i) {
               const currentVarScope = customize.varScope;
-              execLine();
-              if (currentVarScope.__returnObject__) return true;
-              return false;
-            });
+              lines[i]();
+              if (currentVarScope.__returnObject__) break;
+            }
           };
         }
       } else {
@@ -1112,9 +1277,9 @@ export default class Customize {
           if (supportContinue) {
             currentVarScope.__supportContine__ = true;
           }
-          lines.some((execLine) => {
-            execLine();
-            if (currentVarScope.__returnObject__) return true;
+          for(let i = 0; i < len; ++i) {
+            lines[i]();
+            if (currentVarScope.__returnObject__) break;
             const hasLabel = Boolean(currentVarScope.__label__);
             const keep = hasLabel && currentVarScope.__label__ !== currentLabel;
             if (currentVarScope.__isBreak__) {
@@ -1123,18 +1288,17 @@ export default class Customize {
                 if (hasLabel && !keep) {
                   currentVarScope.__label__ = '';
                 }
-                return true;
+                break;
               }
               throw new Error('Uncaught SyntaxError: Illegal break statement');
             } else if (currentVarScope.__isContinute__) {
               if (currentVarScope.__supportContine__) {
                 currentVarScope.__keepContinue__ = keep;
-                return true;
+                break;
               }
               throw new Error('Uncaught SyntaxError: Illegal continute statement');
             }
-            return false;
-          });
+          }
           currentVarScope.__supportBreak__ = storeSupportBreak;
           currentVarScope.__supportContine__ = storeSupportContinue;
         };
@@ -1159,19 +1323,18 @@ export default class Customize {
         containFunction && execScopeStack.push(currentVarScope);
         try {
           // 直接返回
-          lines.some((execLine) => {
-            execLine();
+          for(let i = 0; i < len; ++i) {
+            lines[i]();
             if (currentVarScope.__returnObject__) { // 表示的返回
               // 直接中断返回
-              return true;
+              break;
             }
-            return false;
-          });
+          }
         } finally {
           // 执行作用域出栈
           containFunction && execScopeStack.pop();
           customize.varScope = prevVarScope; // 防止函数调用自身带来作用域干扰
-      
+
           if (currentVarScope.__returnObject__) {
             const result = currentVarScope.__returnObject__.result;
             currentVarScope.__returnObject__ = null;
@@ -1545,21 +1708,24 @@ export default class Customize {
     // 所有的语句
     const caseClauseList: any[] = [];
     const testList: any[] = [];
-    casesDsl.forEach(caseDsl => {
-      const [testDsl, consequentDsl] = caseDsl;
+    const len = casesDsl.length;
+    for(let i = 0; i < len; ++i) {
+      const [testDsl, consequentDsl] = casesDsl[i];
       const getTest = testDsl ? this.getValue(testDsl) : () => testDsl;
       testList.push(getTest);
       caseClauseList.push(this.callBlockStatement(consequentDsl, true));
-    });
+    }
+
+    const testListLen = testList.length;
 
     return () => {
       const discriminant = getDiscriminant();
-      testList.some((getTest, index) => {
+      for(let index = 0; index < testListLen; ++index) {
         const currentVarScope = this.varScope;
-        const test = getTest();
+        const test = testList[index]();
         // test === null 表示 default 分支
         if (test === discriminant || test === null) {
-          for(let i = index; i < testList.length; ++i) {
+          for(let i = index; i < testListLen; ++i) {
             const caseClause = caseClauseList[i];
             caseClause();
             if (currentVarScope.__isBreak__) {
@@ -1571,10 +1737,9 @@ export default class Customize {
               break;
             }
           }
-          return true;
+          break;
         }
-        return false;
-      });
+      }
     };
   }
   // sequence
@@ -1584,11 +1749,12 @@ export default class Customize {
         ? this.getObjMember(item)
         : dslResolve(item, this))
     );
+    const len = sequenceCalls.length;
     return () => {
       let result: any;
-      sequenceCalls.forEach(item => {
-        result = item();
-      });
+      for(let i = 0; i < len; ++i) {
+        result = sequenceCalls[i]();
+      }
       return result;
     };
   }

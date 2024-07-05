@@ -89,7 +89,7 @@ const dslResolve = (
             }
             /**
              * 非块级作用域，必定是一条语句
-             * 创建一个声级作用域
+             * 创建一个块级作用域
              */
             return customize.callBlockStatement([dslJson as DslJson], true, true);
           }
@@ -126,7 +126,7 @@ const dslResolve = (
       case 'literal':
         return customize.getLiteral(value);
       default:
-        
+
     }
   }
   return dslJson as string;
