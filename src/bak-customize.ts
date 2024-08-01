@@ -148,132 +148,29 @@ const getMemberCall = (count: number) => {
       return (target: any, keyPath: string[]) => target[keyPath[0]][keyPath[1]][keyPath[2]][keyPath[3]][keyPath[4]][keyPath[5]][keyPath[6]][keyPath[7]][keyPath[8]][keyPath[9]];
     case 11:
       return (target: any, keyPath: string[]) => target[keyPath[0]][keyPath[1]][keyPath[2]][keyPath[3]][keyPath[4]][keyPath[5]][keyPath[6]][keyPath[7]][keyPath[8]][keyPath[9]][keyPath[10]];
+    case 12:
+      return (target: any, keyPath: string[]) => target[keyPath[0]][keyPath[1]][keyPath[2]][keyPath[3]][keyPath[4]][keyPath[5]][keyPath[6]][keyPath[7]][keyPath[8]][keyPath[9]][keyPath[10]][keyPath[11]];
+    case 13:
+      return (target: any, keyPath: string[]) => target[keyPath[0]][keyPath[1]][keyPath[2]][keyPath[3]][keyPath[4]][keyPath[5]][keyPath[6]][keyPath[7]][keyPath[8]][keyPath[9]][keyPath[10]][keyPath[11]][keyPath[12]];
+    case 14:
+      return (target: any, keyPath: string[]) => target[keyPath[0]][keyPath[1]][keyPath[2]][keyPath[3]][keyPath[4]][keyPath[5]][keyPath[6]][keyPath[7]][keyPath[8]][keyPath[9]][keyPath[10]][keyPath[11]][keyPath[12]][keyPath[13]];
+    case 15:
+      return (target: any, keyPath: string[]) => target[keyPath[0]][keyPath[1]][keyPath[2]][keyPath[3]][keyPath[4]][keyPath[5]][keyPath[6]][keyPath[7]][keyPath[8]][keyPath[9]][keyPath[10]][keyPath[11]][keyPath[12]][keyPath[13]][keyPath[14]];
+    case 16:
+      return (target: any, keyPath: string[]) => target[keyPath[0]][keyPath[1]][keyPath[2]][keyPath[3]][keyPath[4]][keyPath[5]][keyPath[6]][keyPath[7]][keyPath[8]][keyPath[9]][keyPath[10]][keyPath[11]][keyPath[12]][keyPath[13]][keyPath[14]][keyPath[15]];
+    case 17:
+      return (target: any, keyPath: string[]) => target[keyPath[0]][keyPath[1]][keyPath[2]][keyPath[3]][keyPath[4]][keyPath[5]][keyPath[6]][keyPath[7]][keyPath[8]][keyPath[9]][keyPath[10]][keyPath[11]][keyPath[12]][keyPath[13]][keyPath[14]][keyPath[15]][keyPath[16]];
+    case 18:
+      return (target: any, keyPath: string[]) => target[keyPath[0]][keyPath[1]][keyPath[2]][keyPath[3]][keyPath[4]][keyPath[5]][keyPath[6]][keyPath[7]][keyPath[8]][keyPath[9]][keyPath[10]][keyPath[11]][keyPath[12]][keyPath[13]][keyPath[14]][keyPath[15]][keyPath[16]][keyPath[17]];
+    case 19:
+      return (target: any, keyPath: string[]) => target[keyPath[0]][keyPath[1]][keyPath[2]][keyPath[3]][keyPath[4]][keyPath[5]][keyPath[6]][keyPath[7]][keyPath[8]][keyPath[9]][keyPath[10]][keyPath[11]][keyPath[12]][keyPath[13]][keyPath[14]][keyPath[15]][keyPath[16]][keyPath[17]][keyPath[18]];
+    case 20:
+      return (target: any, keyPath: string[]) => target[keyPath[0]][keyPath[1]][keyPath[2]][keyPath[3]][keyPath[4]][keyPath[5]][keyPath[6]][keyPath[7]][keyPath[8]][keyPath[9]][keyPath[10]][keyPath[11]][keyPath[12]][keyPath[13]][keyPath[14]][keyPath[15]][keyPath[16]][keyPath[17]][keyPath[18]][keyPath[20]];
     default:
-      console.warn('长度超10的 object', count);
+      console.warn('长度超20的 object', count);
       return (target: any, keyPath: string[]) => _.get(target, keyPath);
   }
 }
-
-// 批量执行10条
-const batchExec10 = (statementList: Function[], startIndex: number, endIndex: number) => {
-  const statement0 = statementList[startIndex];
-  const statement1 = statementList[startIndex + 1];
-  const statement2 = statementList[startIndex + 2];
-  const statement3 = statementList[startIndex + 3];
-  const statement4 = statementList[startIndex + 4];
-  const statement5 = statementList[startIndex + 5];
-  const statement6 = statementList[startIndex + 6];
-  const statement7 = statementList[startIndex + 7];
-  const statement8 = statementList[startIndex + 8];
-  const statement9 = statementList[startIndex + 9];
-
-  switch(endIndex - startIndex) {
-    case 0:
-      return statement0;
-    case 1:
-      return () => {
-        statement0();
-        statement1();
-      };
-    case 2:
-      return () => {
-        statement0();
-        statement1();
-        statement2();
-      };
-    case 3:
-      return () => {
-        statement0();
-        statement1();
-        statement2();
-        statement3();
-      };
-    case 4:
-      return () => {
-        statement0();
-        statement1();
-        statement2();
-        statement3();
-        statement4();
-      };
-    case 5:
-      return () => {
-        statement0();
-        statement1();
-        statement2();
-        statement3();
-        statement4();
-        statement5();
-      };
-    case 6:
-      return () => {
-        statement0();
-        statement1();
-        statement2();
-        statement3();
-        statement4();
-        statement5();
-        statement6();
-      };
-    case 7:
-      return () => {
-        statement0();
-        statement1();
-        statement2();
-        statement3();
-        statement4();
-        statement5();
-        statement6();
-        statement7();
-      };
-    case 8:
-      return () => {
-        statement0();
-        statement1();
-        statement2();
-        statement3();
-        statement4();
-        statement5();
-        statement6();
-        statement7();
-        statement8();
-      };
-    case 9:
-      return () => {
-        statement0();
-        statement1();
-        statement2();
-        statement3();
-        statement4();
-        statement5();
-        statement6();
-        statement7();
-        statement8();
-        statement9();
-      };
-    default:
-      console.log('endIndex - startIndex', endIndex, startIndex)
-      throw new Error('一次最多执行十条指令');
-  }
-};
-
-/**
- * 批量执行，底层是走 batchExec10
- */
-const batchExec = (statementList: Function[]) => {
-  const len = statementList.length;
-  const lastIndex = len - 1;
-  if (len <= 10) return batchExec10(statementList, 0, lastIndex);
-  const count = Math.ceil(len / 10);
-  const batchExecStatements: Function[] = [];
-  for(let i = 0; i < count; ++i) {
-    const startIndex = i * 10;
-    const endIndex = Math.min(startIndex + 9, lastIndex);
-    batchExecStatements.push(batchExec10(statementList, startIndex, endIndex));
-  }
-  // 递归输出
-  return batchExec(batchExecStatements);
-};
 
 const cloneAnyPush = (array: any[], item: any) => {
   const newArray: any[] = [];
@@ -339,8 +236,7 @@ export default class Customize {
       this[sortKey] = this[key];
     });
     // 生成 scopeId
-    const id = `scope-${++scopeId}`;
-    this.varScope.$$__scope_id__$$ = id;
+    this.varScope.$$__scope_id__$$ = ++scopeId;
   }
   varScope: any = {
     __returnObject__: null,
@@ -1614,34 +1510,27 @@ export default class Customize {
 
     // body 预解析
     const lines: any[] = [];
-    const lineInfos: any[] = [];
     for(let i = 0; i < bodyLen; ++i) {
       const item = body[i];
       if (!item) {
         continue;
       }
       const execLine = dslResolve(item, customize);
-      const lineInfo: any = {};
       if(customize.varScope.__hasBreakStatement__) {
         hasBreakStatement = true;
-        lineInfo.hasBreakStatement = true;
         customize.varScope.__hasBreakStatement__ = false; // 重置为 false，防止干扰其它 block
       } else if (customize.varScope.__hasContinueStatement__) {
         hasContinueStatement = true;
-        lineInfo.hasContinueStatement = true;
         customize.varScope.__hasContinueStatement__ = false; // 重置为 false，防止干扰其它 block
       } else if(customize.varScope.__hasReturnStatement__) {
         hasReturnStatement = true;
-        lineInfo.hasReturnStatement = true;
         customize.varScope.__hasReturnStatement__ = false; // 重置为 false，防止干扰其它 block
       }
-      lineInfos.push(lineInfo);
       lines.push(execLine);
     }
 
     if (!isBlockStatement) {
       lines.shift();
-      lineInfos.shift();
     }
 
     // 重新标记
@@ -1653,124 +1542,65 @@ export default class Customize {
 
     const len = lines.length;
 
-    // 执行链
-    for(let i = len - 1; i >= 0; --i) {
-      const execLine = lines[i];
-      const lineInfo = lineInfos[i];
-      let nextExecLine = lines[i + 1];
-      if (lineInfo.hasReturnStatement) {
-        // 函数或块有返回语句
-        const currentLine: any = () => {
-          execLine();
-          if (customize.varScope.__returnObject__) {
-            // 表示上一个语句已经执行了 return;
-            currentLine.next = null;
-          } else if (!currentLine.next) {
-            currentLine.next = nextExecLine;
-          }
-        };
-        lines[i] = currentLine;
-      } else if (isBlockStatement) { // 块才需要处理 break 或 continue
-        if (lineInfo.hasBreakStatement) {
-          const currentLine: any = () => {
-            execLine();
-            const currentVarScope = customize.varScope;
-            if (currentVarScope.__isBreak__) {
-              if (currentVarScope.__supportBreak__) {
-                const hasLabel = Boolean(currentVarScope.__label__);
-                const keep = hasLabel && currentVarScope.__label__ !== currentLabel;
-                currentVarScope.__keepBreaking__ = keep;
-                if (hasLabel && !keep) {
-                  currentVarScope.__label__ = '';
-                }
-                currentLine.next = null;
-              } else {
-                throw new Error('Uncaught SyntaxError: Illegal break statement');
-              }
-            } else if (!currentLine.next) {
-              currentLine.next = nextExecLine;
+    if (isBlockStatement) { // 块
+      let execBlock: Function;
+      if (!hasBreakStatement && !hasContinueStatement) {
+        if (!hasReturnStatement) {
+          let testTrue = true;
+          execBlock = () => {
+            for(let i = 0; i < len; ++i) {
+              if (testTrue) lines[i]();
             }
           };
-          lines[i] = currentLine;
-        } else if (lineInfo.hasContinueStatement) {
-          const currentLine: any = () => {
-            execLine();
-            const currentVarScope = customize.varScope;
-            if (currentVarScope.__isContinute__) {
-              if (currentVarScope.__supportContine__) {
-                const hasLabel = Boolean(currentVarScope.__label__);
-                const keep = hasLabel && currentVarScope.__label__ !== currentLabel;
-                currentVarScope.__keepContinue__ = keep;
-                currentLine.next = null;
-              } else {
-                throw new Error('Uncaught SyntaxError: Illegal continute statement');
-              }
-            } else if (!currentLine.next) {
-              currentLine.next = nextExecLine;
+        } else {
+          execBlock = () => {
+            for(let i = 0; i < len; ++i) {
+              // const currentVarScope = customize.varScope;
+              lines[i]();
+              if (customize.varScope.__returnObject__) break;
             }
-          }
-          lines[i] = currentLine;
+          };
         }
-      }
-      lines[i].next = nextExecLine;
-    }
-
-    if (isBlockStatement) { // 块
-      if (hasBreakStatement) {
-        return () => {
+      } else {
+        execBlock = function () {
           const currentVarScope = customize.varScope;
           const storeSupportBreak = currentVarScope.__supportBreak__;
           if (supportBreak) {
             currentVarScope.__supportBreak__ = true;
           }
-          let current = lines[0];
-          while(current) {
-            current();
-            current = current.next;
-          }
-          currentVarScope.__supportBreak__ = storeSupportBreak;
-        };
-      } else if (hasContinueStatement) {
-        return () => {
-          const currentVarScope = customize.varScope;
           const storeSupportContinue = currentVarScope.__supportContine__;
           if (supportContinue) {
             currentVarScope.__supportContine__ = true;
           }
-          let current = lines[0];
-          while(current) {
-            current();
-            current = current.next;
+          for(let i = 0; i < len; ++i) {
+            lines[i]();
+            if (currentVarScope.__returnObject__) break;
+            const hasLabel = Boolean(currentVarScope.__label__);
+            const keep = hasLabel && currentVarScope.__label__ !== currentLabel;
+            if (currentVarScope.__isBreak__) {
+              if (currentVarScope.__supportBreak__) {
+                currentVarScope.__keepBreaking__ = keep;
+                if (hasLabel && !keep) {
+                  currentVarScope.__label__ = '';
+                }
+                break;
+              }
+              throw new Error('Uncaught SyntaxError: Illegal break statement');
+            } else if (currentVarScope.__isContinute__) {
+              if (currentVarScope.__supportContine__) {
+                currentVarScope.__keepContinue__ = keep;
+                break;
+              }
+              throw new Error('Uncaught SyntaxError: Illegal continute statement');
+            }
           }
+          currentVarScope.__supportBreak__ = storeSupportBreak;
           currentVarScope.__supportContine__ = storeSupportContinue;
         };
       }
-      else if (hasReturnStatement) {
-        return () => {
-          let current = lines[0];
-          while(current) {
-            current();
-            current = current.next;
-          }
-        };
-      }
-      // return () => {
-      //   let current = lines[0];
-      //   while(current) {
-      //     current();
-      //     current = current.next;
-      //   }
-      // };
-      return batchExec(lines);
+      return execBlock;
     } else { // 函数
       let FreshVarScope;
-      const execChain = !hasReturnStatement ? batchExec(lines) : () => {
-        let current = lines[0];
-        while(current) {
-          current();
-          current = current.next;
-        }
-      };
       // 执行函数
       function execFunction () {
         const prevVarScope = customize.varScope;
@@ -1788,7 +1618,14 @@ export default class Customize {
         // 执行作用域入栈
         containFunction && execScopeStack.push(currentVarScope);
         try {
-          execChain();
+          // 直接返回
+          for(let i = 0; i < len; ++i) {
+            lines[i]();
+            if (currentVarScope.__returnObject__) { // 表示的返回
+              // 直接中断返回
+              break;
+            }
+          }
         } finally {
           // 执行作用域出栈
           containFunction && execScopeStack.pop();
@@ -2207,11 +2044,13 @@ export default class Customize {
         ? this.getObjMember(item)
         : dslResolve(item, this))
     );
-    const lastCall = sequenceCalls.pop();
-    const batchExecStatements = batchExec(sequenceCalls);
+    const len = sequenceCalls.length;
     return () => {
-      batchExecStatements();
-      return lastCall();
+      let result: any;
+      for(let i = 0; i < len; ++i) {
+        result = sequenceCalls[i]();
+      }
+      return result;
     };
   }
   // 添加标记
