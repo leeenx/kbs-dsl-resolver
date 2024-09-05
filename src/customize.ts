@@ -122,34 +122,85 @@ const execScopeStack: Customize["varScope"][] = [];
 let scopeId = 0;
 
 // 替换 _.get 的方法
-const getMemberCall = (count: number) => {
+const getMemberCall = (count: number, keyPath?: string[], updateLastKeyCall: Function = _.noop): Function => {
+  const hasKeyPath = Boolean(keyPath?.length);
+  let [one, two, three, four, five, six, seven, eight, nign, ten] = keyPath || [];
+
   switch(count) {
     case 0:
-      return (target: any, keyPath: string[]) => target;
-    case 1:
+      return (target: any) => target;
+    case 1: {
+      updateLastKeyCall((lastValue: any) => one = lastValue);
+      if (hasKeyPath) {
+        return (target: any)  => target[one];
+      }
       return (target: any, keyPath: string[]) => target[keyPath[0]];
-    case 2:
+    }
+    case 2: {
+      updateLastKeyCall((lastValue: any) => two = lastValue);
+      if (hasKeyPath) {
+        return (target: any)  => target[one][two];
+      }
       return (target: any, keyPath: string[]) => target[keyPath[0]][keyPath[1]];
-    case 3:
+    }
+    case 3: {
+      updateLastKeyCall((lastValue: any) => three = lastValue);
+      if (hasKeyPath) {
+        return (target: any)  => target[one][two][three];
+      }
       return (target: any, keyPath: string[]) => target[keyPath[0]][keyPath[1]][keyPath[2]];
-    case 4:
+    }
+    case 4: {
+      updateLastKeyCall((lastValue: any) => four = lastValue);
+      if (hasKeyPath) {
+        return (target: any)  => target[one][two][three][four];
+      }
       return (target: any, keyPath: string[]) => target[keyPath[0]][keyPath[1]][keyPath[2]][keyPath[3]];
-    case 5:
+    }
+    case 5: {
+      updateLastKeyCall((lastValue: any) => five = lastValue);
+      if (hasKeyPath) {
+        return (target: any)  => target[one][two][three][four][five];
+      }
       return (target: any, keyPath: string[]) => target[keyPath[0]][keyPath[1]][keyPath[2]][keyPath[3]][keyPath[4]];
-    case 6:
+    }
+    case 6: {
+      updateLastKeyCall((lastValue: any) => six = lastValue);
+      if (hasKeyPath) {
+        return (target: any)  => target[one][two][three][four][five][six];
+      }
       return (target: any, keyPath: string[]) => target[keyPath[0]][keyPath[1]][keyPath[2]][keyPath[3]][keyPath[4]][keyPath[5]];
-    case 7:
+    }
+    case 7: {
+      updateLastKeyCall((lastValue: any) => seven = lastValue);
+      if (hasKeyPath) {
+        return (target: any)  => target[one][two][three][four][five][six][seven];
+      }
       return (target: any, keyPath: string[]) => target[keyPath[0]][keyPath[1]][keyPath[2]][keyPath[3]][keyPath[4]][keyPath[5]][keyPath[6]];
-    case 8:
+    }
+    case 8: {
+      updateLastKeyCall((lastValue: any) => eight = lastValue);
+      if (hasKeyPath) {
+        return (target: any)  => target[one][two][three][four][five][six][seven][eight];
+      }
       return (target: any, keyPath: string[]) => target[keyPath[0]][keyPath[1]][keyPath[2]][keyPath[3]][keyPath[4]][keyPath[5]][keyPath[6]][keyPath[7]];
+    }
     case 9:
+      updateLastKeyCall((lastValue: any) => nign = lastValue);
+      if (hasKeyPath) {
+        return (target: any)  => target[one][two][three][four][five][six][seven][eight][nign];
+      }
       return (target: any, keyPath: string[]) => target[keyPath[0]][keyPath[1]][keyPath[2]][keyPath[3]][keyPath[4]][keyPath[5]][keyPath[6]][keyPath[7]][keyPath[8]];
-    case 10:
+    case 10: {
+      updateLastKeyCall((lastValue: any) => ten = lastValue);
+      if (hasKeyPath) {
+        return (target: any)  => target[one][two][three][four][five][six][seven][eight][nign][ten];
+      }
       return (target: any, keyPath: string[]) => target[keyPath[0]][keyPath[1]][keyPath[2]][keyPath[3]][keyPath[4]][keyPath[5]][keyPath[6]][keyPath[7]][keyPath[8]][keyPath[9]];
-    case 11:
-      return (target: any, keyPath: string[]) => target[keyPath[0]][keyPath[1]][keyPath[2]][keyPath[3]][keyPath[4]][keyPath[5]][keyPath[6]][keyPath[7]][keyPath[8]][keyPath[9]][keyPath[10]];
+    }
     default:
       console.warn('长度超10的 object', count);
+      updateLastKeyCall((lastValue: any) => keyPath![count - 1] = lastValue);
       return (target: any, keyPath: string[]) => _.get(target, keyPath);
   }
 }
@@ -275,16 +326,6 @@ const batchExec = (statementList: Function[]) => {
   return batchExec(batchExecStatements);
 };
 
-const cloneAnyPush = (array: any[], item: any) => {
-  const newArray: any[] = [];
-  const len = array.length;
-  for(let i = 0; i < len; ++i) {
-    newArray[i] = array[i];
-  }
-  newArray.push(item);
-  return newArray;
-};
-
 // 自定义的方法
 export default class Customize {
   constructor(parentVarScope?: any) {
@@ -298,7 +339,6 @@ export default class Customize {
       ['getValue', 'gV'],
       ['let', 'l'],
       ['var', 'v'],
-      // ['batchConst', 'bC'],
       ['batchLet', 'bL'],
       ['batchVar', 'bV'],
       ['batchDeclaration', 'bD'],
@@ -362,9 +402,9 @@ export default class Customize {
     return memberExpressionValue;
   }
   // 获取值
-  getValue(valueDsl: DslJson, ignoreBind = true, returnParent?: Function) {
+  getValue(valueDsl: DslJson) {
     const isMemberExpression = this.checkMemberExpression(valueDsl);
-    return !isMemberExpression ? dslResolve(valueDsl, this) : this.getObjMember(valueDsl, ignoreBind, returnParent);
+    return !isMemberExpression ? dslResolve(valueDsl, this) : this.getObjMember(valueDsl);
   }
   updateVarScope(currentVarScope) {
     const lastIndex = execScopeStack.length - 1;
@@ -382,29 +422,44 @@ export default class Customize {
   // let
   let(key: string, valueDsl?: DslJson, isVarKind: boolean = false, onlyDeclare: boolean = false, assignArg: boolean = false) {
     const varScope = this.varScope;
+    let isLiteral = true;
+      let literalValue: any;
+      if (!valueDsl) {
+      } else if (valueDsl.type === 'literal') {
+        literalValue = valueDsl.value;
+      } else if (valueDsl.t === 'l') {
+        literalValue = valueDsl.v;
+      } else if (_.isString(valueDsl) || _.isNumber(valueDsl)) {
+        literalValue = valueDsl;
+      } else {
+        // 默认非字面量
+        isLiteral = false;
+      }
     if (_.has(varScope, key)) {
       if (isVarKind) {
           const preGetValue = valueDsl ? this.getValue(valueDsl) : _.noop;
-          const that = this;
           // 空声明
           if (onlyDeclare) {
             if (assignArg) { // 声明后赋值
-              return function(value: any) {
-                that.varScope[key] = value;
+              return (value: any) => {
+                this.varScope[key] = value;
               };
             }
             return _.noop;
           }
           if (assignArg) { // 声明后赋值
-            return function (value: any) {
-              that.varScope[key] = value;
+            return (value: any) => {
+              this.varScope[key] = value;
             };
           }
-          return function () {
+          if (isLiteral) {
+            return () => {
+              this.varScope[key] = literalValue;
+            };
+          }
+          return () => {
             // 下面的赋值不能与最后一行的合并成一段语句，因为下一行的 preGetValue 方法可能会导致作用域转移
-            const currentVarScope = that.varScope;
-            const value = preGetValue();
-            currentVarScope[key] = value;
+            this.varScope[key] = preGetValue();
           };
       } else {
         return () => {
@@ -418,13 +473,25 @@ export default class Customize {
         writable: true,
         enumerable: true
       });
-      const preGetValue = valueDsl ? this.getValue(valueDsl) : _.noop;
-      if (!_.isFunction(preGetValue)) {
-        console.log('========let error', {valueDsl, preGetValue});
+
+      if (assignArg) {
+        return (value: any) => {
+          this.varScope[key] = value;
+        };
       }
-      return (realValue?: any) => {
-        const value = valueDsl ? preGetValue() : realValue;
-        this.varScope[key] = value;
+
+      const preGetValue = valueDsl ? this.getValue(valueDsl) : _.noop;
+      if (isLiteral) {
+        return (
+          _.isUndefined(literalValue)
+            ? _.noop
+            : () => {
+              this.varScope[key] = literalValue;
+            }
+        );
+      }
+      return () => {
+        this.varScope[key] = preGetValue();
       };
     }
   }
@@ -466,13 +533,13 @@ export default class Customize {
   // 取值
   getConst(key: string) {
     let varScope = this.varScope;
-    const keyPath: string[] = [];
+    const parentPath: string[] = [];
     do {
       if (_.has(varScope, key)) {
         break;
       }
       varScope = varScope.__parentVarScope__;
-      keyPath.push('__parentVarScope__');
+      parentPath.push('__parentVarScope__');
     } while(Boolean(varScope));
 
     // 找不到作用域，直接返回 undefined
@@ -480,13 +547,14 @@ export default class Customize {
       return () => undefined;
     }
 
-    if(!keyPath.length) {
+    if(!parentPath.length) {
       return () => this.varScope[key];
     } else if (varScope === globalScope) {
       return () => globalScope[key];
     } else {
-      const getMember = getMemberCall(keyPath.length);
-      return () => getMember(this.varScope, keyPath)[key];
+      const keyPath = [...parentPath, key];
+      const getMember = getMemberCall(keyPath.length, keyPath);
+      return () => getMember(this.varScope);
     }
   }
   getLet(key: string) {
@@ -500,9 +568,9 @@ export default class Customize {
     return this.getConst(key);
   }
   // 获取对象的成员
-  getObjMember(memberDsl: DslJson, ignoreBind = true, returnParent?: Function) {
+  getObjMember(memberDsl: DslJson) {
     const keyPathOfDsl = this.getMemberExpressionValue(memberDsl);
-    return this.getOrAssignOrDissocPath(keyPathOfDsl, undefined, undefined, 'get', ignoreBind, returnParent);
+    return this.getOrAssignOrDissocPath(keyPathOfDsl, undefined, undefined, 'get');
   }
   // 取值、赋值与删除对象成员
   getOrAssignOrDissocPath(
@@ -510,8 +578,6 @@ export default class Customize {
     valueDsl?: DslJson,
     operator?: AssignmentOperator,
     type: 'get' | 'parentAndLastKey' | 'assign' | 'dissocPath' = 'get',
-    ignoreBind: boolean = true,
-    returnParent?: Function,
     assignArg: boolean = false
   ) {
     if (!keyPathOfDsl.length) {
@@ -544,230 +610,253 @@ export default class Customize {
     const parentKeyPathCalls = [...keyPathCalls];
     const lastKeyCall = parentKeyPathCalls.pop();
 
+    // 是否有 lastkey
+    const hasLastKey = Boolean(lastKeyCall);
+
     const parentLen = parentKeyPathCalls.length;
-    let lastKeyIsSimple = true;
     const isSimple = keyPathOfDsl.every((item, index) => {
-      const result = _.isString(item) || _.isNumber(item);
       if (index === keyPathOfDsl.length - 1) {
-        lastKeyIsSimple = result;
         return true;
       }
-      return result;
+      return _.isString(item) || _.isNumber(item);
     });
 
-    // 获取目标作用域
-    let getTargetScope: any | null = null;
-    if (!isIdentifier) {
-      // 根非 Identifier
-      getTargetScope = firstKeyCall;
-    } else {
+    const lastKeyDsl = keyPathOfDsl[keyPathOfDsl.length - 1];
+    const lastKeyIsSimple = _.isString(lastKeyDsl) || _.isNumber(lastKeyDsl);
+
+    // 当前的根作用域
+    let currentRootScopeType: string = 'local'; // 取 this.varScope;;
+
+    /**
+     * 是否有根作用域
+     * 非 Identifier 类型，firstKeyCall 就是它的根作用域
+     */
+    let hasCurrentRootScope: boolean = !isIdentifier;
+
+    const parentVarScopeKeyPath: string[] = [];
+    if (isIdentifier) { // Identifier 类型
       const firstKey = firstKeyCall();
       if (_.hasIn(this.varScope, firstKey)) {
         // 当前作用域下
-        getTargetScope = () => this.varScope;
+        hasCurrentRootScope = true;
       } else {
         // 当前作用域找不到，往上找
         let parent = this.varScope.__parentVarScope__;
-        const parentKeyPath = ['__parentVarScope__'];
+        parentVarScopeKeyPath.push('__parentVarScope__');
         while(Boolean(parent)) {
           if (_.hasIn(parent, firstKey)) { // 找到作用域
             if (parent === globalScope) {
-              getTargetScope = () => globalScope;
-            } else {
-              const getMember = getMemberCall(parentKeyPath.length);
-              getTargetScope = () => getMember(this.varScope, parentKeyPath);
+              parentVarScopeKeyPath.length = 0; // 直接访问全局变量
+              currentRootScopeType = 'global'; // 取 globalScope;
             }
+            hasCurrentRootScope = true;
             break;
           }
           parent = parent.__parentVarScope__;
-          parentKeyPath.push('__parentVarScope__');
+          parentVarScopeKeyPath.push('__parentVarScope__');
         }
       }
     }
-    if (getTargetScope !== null) {
-      const getMember = getMemberCall(parentLen);
-      const getParent = parentLen ? (targetScope, parentKeyPath) => getMember(targetScope, parentKeyPath) : (targetScope) => targetScope;
+
+    const parentVarScopeKeyPathLen = parentVarScopeKeyPath.length;
+
+    if (hasCurrentRootScope) {
+      const parentKeyPath: any[] = [...parentVarScopeKeyPath];
+
+      // 简单模式
+      if (isSimple) {
+        parentKeyPathCalls.forEach(item => parentKeyPath.push(item()));
+      }
+
+      // 父级 keyPath，即除了 lastKey 的 keyPath
       const getParentKeyPath = () => {
-        const parentKeyPath: any[] = [];
         for(let i = 0; i < parentLen; ++i) {
-          parentKeyPath[i] = parentKeyPathCalls[i]();
+          parentKeyPath[i + parentVarScopeKeyPathLen] = parentKeyPathCalls[i]();
         }
         return parentKeyPath;
       };
-      if (_.isFunction(returnParent)) {
-        returnParent!(() => {
-          const targetScope = getTargetScope();
-          const parentKeyPath = getParentKeyPath();
-          const parent = getParent(targetScope, parentKeyPath);
-          return parent;
-        });
+
+      // memberlen 的取值必须在 lastKey 追加的操作之前，否则 memberlen长度会出错
+      let memberLen = parentKeyPath.length;
+
+      // 返回完整 keyPath
+      const lastKeyIndex = parentVarScopeKeyPathLen + parentLen;
+      // 存在 lastKey，并且 lastKeyIsSimple，把 lastKey 追加到「parentKeyPath」
+      if (hasLastKey && lastKeyIsSimple) {
+        parentKeyPath[lastKeyIndex] = lastKeyCall();
+      }
+      const getFullKeyPath =
+        hasLastKey && !lastKeyIsSimple
+        ? () => {
+          parentKeyPath[lastKeyIndex] = lastKeyCall();
+          return getParentKeyPath();
+        }
+        : getParentKeyPath;
+
+      const fullKeyPathLen = lastKeyIndex + 1;
+
+      // isSimple 时的获取成员
+      const getSimpleMember = getMemberCall(memberLen, parentKeyPath);
+
+      let updateLastKey: Function = _.noop;
+
+      // isSimple 时返回值
+      const getSimpleTargetValue = getMemberCall(fullKeyPathLen, parentKeyPath, (updateLastKeyCall) => updateLastKey = updateLastKeyCall);
+
+      // 获取目标作用域
+      let getTargetScope: any;
+
+      /**
+       * 获取目标值
+       * 公提供给 type === 'get'
+       */
+      let getTargetValue: any;
+
+      if (!isIdentifier) {
+        if (isSimple) {
+          getTargetScope = () => getSimpleMember(firstKeyCall());
+          if (lastKeyIsSimple) {
+            getTargetValue = () => getSimpleTargetValue(firstKeyCall())
+          } else {
+            getTargetValue = () => {
+              updateLastKey(lastKeyCall());
+              return getSimpleTargetValue(firstKeyCall());
+            }
+          }
+
+        } else {
+          /**
+           * 非「isSimple」，parentKeyPath 没有组装「parentKeyPathCalls」的结果
+           * memberLen 需要把 parentKeyPathCalls 的长度补上
+           */
+          memberLen += parentKeyPathCalls.length;
+          // fullKeyPathLen += parentKeyPathCalls.length;
+          const getMember = getMemberCall(memberLen);
+          const getValue = getMemberCall(fullKeyPathLen);
+          getTargetScope = () => getMember(firstKeyCall(), getParentKeyPath());
+          getTargetValue = () => getValue(firstKeyCall(), getFullKeyPath());
+        }
+      } else if (isSimple) {
+        getTargetScope = (
+          currentRootScopeType === 'local'
+            ? () => getSimpleMember(this.varScope)
+            : () => getSimpleMember(globalScope)
+        );
+        if (lastKeyIsSimple) {
+          getTargetValue = (
+            currentRootScopeType === 'local'
+              ? () => getSimpleTargetValue(this.varScope)
+              : () => getSimpleTargetValue(globalScope)
+          );
+        } else {
+          getTargetValue = (
+            currentRootScopeType === 'local'
+              ? () => {
+                updateLastKey(lastKeyCall());
+                return getSimpleTargetValue(this.varScope);
+              }
+              : () => {
+                updateLastKey(lastKeyCall());
+                return getSimpleTargetValue(globalScope);
+              }
+          );
+        }
+      } else {
+        /**
+         * 非「isSimple」，parentKeyPath 没有组装「parentKeyPathCalls」的结果
+         * memberLen 需要把 parentKeyPathCalls 的长度补上
+         */
+        memberLen += parentKeyPathCalls.length;
+        const getMember = getMemberCall(memberLen);
+        const getValue = getMemberCall(fullKeyPathLen);
+        getTargetScope = (
+          currentRootScopeType === 'local'
+            ? () => getMember(this.varScope, getParentKeyPath())
+            : () => getMember(globalScope, getParentKeyPath())
+        );
+        getTargetValue = (
+          currentRootScopeType === 'local'
+          ? () => {
+            const fullKeyPath = getFullKeyPath();
+
+            return getValue(this.varScope, fullKeyPath);
+          }
+          : () => getValue(globalScope, getFullKeyPath())
+        );
       }
 
-      if (type === 'assign') {
-        const preGetValue = valueDsl ? this.getValue(valueDsl) : _.noop;
-        const getResult = this.getResultByOperator(operator);
-        if (keyPathOfDsl.length === 1) {
-          const key = firstDsl as string;
+      switch(type) {
+        case 'assign': {
+          const preGetValue = valueDsl ? this.getValue(valueDsl) : _.noop;
+          const isLiteral = valueDsl!.t === 'l' || valueDsl!.type === 'literal';
+          const literalValue = isLiteral ? valueDsl!.value : valueDsl!.v;
+          const getResult = this.getResultByOperator(operator);
+          // 这里不需要针对 lastKeyIsSimple 做优化，因为优化后性能看不出区别
           if (assignArg) {
-            return function(value: any) {
+            return (value: any) => {
               const targetScope = getTargetScope();
-              return targetScope[key] = getResult(targetScope[key], value);
-            }
-          }
-          return function() {
-            const targetScope = getTargetScope();
-            return targetScope[key] = getResult(targetScope[key], preGetValue());
-          }
-        } else if(isSimple) {
-          const parentKeyPath = [...keyPathOfDsl];
-          const lastDsl = parentKeyPath.pop() as string;
-          const getLastKey = lastKeyIsSimple ? () => lastDsl : lastKeyCall;
-          // 极简模式
-          if (assignArg) {
-            return function(value: any) {
-              const lastKey = getLastKey();
-              const targetScope = getTargetScope();
-              const parent = getParent(targetScope, parentKeyPath);
-              return parent[lastKey] = getResult(parent[lastKey], value);
+              const lastKey = lastKeyCall();
+              const result = getResult(targetScope[lastKey], value);
+              return targetScope[lastKey] = result;
             };
           }
-          return function() {
-            const lastKey = getLastKey();
-            const targetScope = getTargetScope();
-            const parent = getParent(targetScope, parentKeyPath);
-            return parent[lastKey] = getResult(parent[lastKey], preGetValue());
-          };
-        }
-        const getMember = getMemberCall(parentLen + 1);
-        if (assignArg) {
-          return function(value: any) {
-            const targetScope = getTargetScope();
-            const parentKeyPath = getParentKeyPath();
-            if (!parentKeyPath.length || _.hasIn(targetScope, parentKeyPath)) {
-              // 执行赋值
+          if (isLiteral) {
+            return () => {
+              const targetScope = getTargetScope();
               const lastKey = lastKeyCall();
-              const keyPath = cloneAnyPush(parentKeyPath, lastKey);
-              const parent = getParent(targetScope, parentKeyPath);
-              const result = getResult(getMember(targetScope, keyPath), value);
-              return parent[lastKey!] = result;
-            }
-          };
-        }
-        return function() {
-          const targetScope = getTargetScope();
-          const parentKeyPath = getParentKeyPath();
-          if (!parentKeyPath.length || _.hasIn(targetScope, parentKeyPath)) {
-            // 执行赋值
+              return targetScope[lastKey] = getResult(targetScope[lastKey], literalValue);
+            };
+          }
+          return () => {
+            const targetScope = getTargetScope();
             const lastKey = lastKeyCall();
-            const keyPath = cloneAnyPush(parentKeyPath, lastKey);
-            const parent = getParent(targetScope, parentKeyPath);
             // 要在 lastKey 之后调用 preGetValue
             const value = preGetValue();
-            const result = getResult(getMember(targetScope, keyPath), value);
-            return parent[lastKey!] = result;
-          }
-        };
-      } else if (type === 'dissocPath') {
-        // 删除指定属性
-        return () => {
-          const targetScope = getTargetScope();
-          const parentKeyPath = getParentKeyPath();
-          const parent = getParent(targetScope, parentKeyPath);
-          const lastKey = lastKeyCall();
-          if (!parentKeyPath.length || _.hasIn(parent, lastKey)) {
-            delete parent[lastKey!];
-          }
-        };
-      } else if (type === 'get' || type === 'parentAndLastKey') {
-        if (keyPathOfDsl.length === 1) {
-          // Identifier 模式
-          if (type === 'parentAndLastKey') {
-            if (lastKeyCall) {
-              return () => {
-                const targetScope = getTargetScope();
-                return { parent: targetScope, lastKey: lastKeyCall() };
-              };
-            }
-            return () => {
-              const targetScope = getTargetScope();
-              return { parent: targetScope, lastKey: undefined };
-            };
-          }
-          return () => {
-            const targetScope = getTargetScope();
-            const lastKey = lastKeyCall();
-            return targetScope[lastKey];
+            return targetScope[lastKey] = getResult(targetScope[lastKey], value);
           };
-        } else if (isSimple) {
-          // 简单模式
-          const parentKeyPath = [...keyPathOfDsl];
-          const lastDsl = parentKeyPath.pop() as string;
-          const getLastKey = lastKeyIsSimple ? () => lastDsl : lastKeyCall;
-          if (type === 'parentAndLastKey') {
-            const getMember = getMemberCall(parentKeyPath.length);
-            return () => {
-              const targetScope = getTargetScope();
-              const parent = getMember(targetScope, parentKeyPath as string[]);
-              return { parent, lastKey: getLastKey() };
-            };
-          }
-          const [one, two, three, four] = keyPathOfDsl as string[];
-          switch(keyPathOfDsl.length) {
-            case 2:
-              return () => {
-                const targetScope = getTargetScope();
-                return targetScope[one][getLastKey()];
-              };
-            case 3:
-              return () => {
-                const targetScope = getTargetScope();
-                return targetScope[one][two][getLastKey()];
-              };
-            case 4:
-              return () => {
-                const targetScope = getTargetScope();
-                return targetScope[one][two][three][getLastKey()];
-              };
-            case 5:
-              return () => {
-                const targetScope = getTargetScope();
-                return targetScope[one][two][three][four][getLastKey()];
-              };
-            default:
-              const getMember = getMemberCall(keyPathOfDsl.length);
-              return () => {
-                const targetScope = getTargetScope();
-                return getMember(targetScope, keyPathOfDsl as string[]);
-              };
-          }
         }
-        // 完全模式
-        if (type === 'parentAndLastKey') {
+        case 'dissocPath': {
+          // 删除指定属性
           return () => {
             const targetScope = getTargetScope();
-            const parentKeyPath = getParentKeyPath();
             const lastKey = lastKeyCall();
-            const parent = getParent(targetScope, parentKeyPath);
-            return { parent, lastKey };
-          }
+            try {
+              delete targetScope[lastKey!];
+            } catch {}
+          };
         }
-        return () => {
-          const targetScope = getTargetScope();
-          const parentKeyPath = getParentKeyPath();
-          const lastKey = lastKeyCall();
-          const keyPath = cloneAnyPush(parentKeyPath, lastKey);
-          const parent = getParent(targetScope, parentKeyPath);
-          if (!_.isNil(parent)) {
-            // keyPath 找得到，返回结果
-            return parent[lastKey];
-          }
-          if (_.isUndefined(parent)) {
-            console.log('TypeError', { keyPathOfDsl, keyPath, targetScope });
-            throw new Error(`TypeError: Cannot read property '${lastKey}' of undefine`);
-          } else if (_.isNull(parent)) {
-            throw new Error(`TypeError: Cannot read property '${lastKey}' of null`);
-          }
+        case 'get': {
+          return () => {
+            try {
+              return getTargetValue();
+            } catch (err) {
+              console.log('getOrAssignOrDissocPath, type === "get" 失败', {
+                keyPathOfDsl,
+                currentRootScopeType,
+                'this.varScope': this.varScope,
+                globalScope,
+                isSimple,
+                lastKeyIsSimple,
+                parentVarScopeKeyPath,
+              });
+              throw err;
+            }
+          };
         }
+        case 'parentAndLastKey': {
+          if (lastKeyIsSimple || !lastKeyCall) {
+            const lastKey = lastKeyCall ? lastKeyCall() : undefined;
+            return () => {
+              return { parent: getTargetScope(), lastKey };
+            };
+          }
+          return () => {
+            const targetScope = getTargetScope();
+            const lastKey = lastKeyCall();
+            return { parent: targetScope, lastKey };
+          };
+        }
+        default: console.warn('===== 未知类型：', type);
       }
     } else {
       // 执行到这里，表示出错了
@@ -779,7 +868,7 @@ export default class Customize {
       }
       const parentKeyPath = parentKeyPathCalls.map(parentKeyCall => parentKeyCall());
       return () => {
-        console.log('keyPathOfDsl', {keyPathOfDsl, lastKeyCall, isIdentifier});
+        console.log('keyPathOfDsl', {keyPathOfDsl, lastKeyCall, isIdentifier, type});
         const lastKey = lastKeyCall();
         throw new Error(`对象${parentKeyPath.join('.')}不存在成员：${lastKey}`);
       };
@@ -787,7 +876,7 @@ export default class Customize {
   }
   assignLet(keyDsl: DslJson, valueDsl?: DslJson, operator?: AssignmentOperator, assignArg: boolean = false) {
     const keyPathOfDsl = this.checkMemberExpression(keyDsl) ? this.getMemberExpressionValue(keyDsl) : [keyDsl];
-    return this.getOrAssignOrDissocPath(keyPathOfDsl, valueDsl, operator, 'assign', undefined, undefined, assignArg);
+    return this.getOrAssignOrDissocPath(keyPathOfDsl, valueDsl, operator, 'assign', assignArg);
   }
   // 按操作符赋值
   getResultByOperator(operator: AssignmentOperator = '=') {
@@ -961,55 +1050,78 @@ export default class Customize {
     }
 
     if (leftIsLiteral && rightIsLiteral) {
+      let result: any;
       // 性能最佳情况
       switch(operator) {
         case "==":
-          return () => leftLiteral == rightLiteral;
+          result = leftLiteral == rightLiteral;
+          break;
         case "!=":
-          return () => leftLiteral != rightLiteral;
+          result = leftLiteral != rightLiteral;
+          break;
         case "===":
-          return () => leftLiteral === rightLiteral;
+          result = leftLiteral === rightLiteral;
+          break;
         case "!==":
-          return () => leftLiteral !== rightLiteral;
+          result = leftLiteral !== rightLiteral;
+          break;
         case "<":
-          return () => leftLiteral < rightLiteral;
+          result = leftLiteral < rightLiteral;
+          break;
         case "<=":
-          return () => leftLiteral <= rightLiteral;
+          result = leftLiteral <= rightLiteral;
+          break;
         case ">":
-          return () => leftLiteral > rightLiteral;
+          result = leftLiteral > rightLiteral;
+          break;
         case ">=":
-          return () => leftLiteral >= rightLiteral;
+          result = leftLiteral >= rightLiteral;
+          break;
         case "<<":
-          return () => leftLiteral << rightLiteral;
+          result = leftLiteral << rightLiteral;
+          break;
         case ">>":
-          return () => leftLiteral >> rightLiteral;
+          result = leftLiteral >> rightLiteral;
+          break;
         case ">>>":
-          return () => leftLiteral >>> rightLiteral;
+          result = leftLiteral >>> rightLiteral;
+          break;
         case "+":
-          return () => leftLiteral + rightLiteral;
+          result = leftLiteral + rightLiteral;
+          break;
         case "-":
-          return () => leftLiteral - rightLiteral;
+          result = leftLiteral - rightLiteral;
+          break;
         case "*":
-          return () => leftLiteral * rightLiteral;
+          result = leftLiteral * rightLiteral;
+          break;
         case "/":
-          return () => leftLiteral / rightLiteral;
+          result = leftLiteral / rightLiteral;
+          break;
         case "%":
-          return () => leftLiteral % rightLiteral;
+          result = leftLiteral % rightLiteral;
+          break;
         case "|":
-          return () => leftLiteral | rightLiteral;
+          result = leftLiteral | rightLiteral;
+          break;
         case "^":
-          return () => leftLiteral ^ rightLiteral;
+          result = leftLiteral ^ rightLiteral;
+          break;
         case "&":
-          return () => leftLiteral & rightLiteral;
+          result = leftLiteral & rightLiteral;
+          break;
         case "in":
-          return () => leftLiteral in rightLiteral;
+          result = leftLiteral in rightLiteral;
+          break;
         case "instanceof":
-          return () => leftLiteral instanceof rightLiteral;
+          result = leftLiteral instanceof rightLiteral;
+          break;
         default:
           return () => {
             throw new Error(`未知的二元运算符：${operator}`);
           };
       }
+      return () => result;
     } else if (leftIsLiteral) {
       switch(operator) {
         case "==":
@@ -1165,11 +1277,12 @@ export default class Customize {
     const keyPathDsl = this.checkMemberExpression(argument) ? this.getMemberExpressionValue(argument) : [argument];
     const getParentAndLastKey = this.getOrAssignOrDissocPath(keyPathDsl, undefined, undefined, 'parentAndLastKey') as Function;
     switch(true) {
-      case prefix && operator === '++':
+      case prefix && operator === '++': {
         return () => {
           const { parent, lastKey } = getParentAndLastKey();
           return ++parent[lastKey];
         };
+      }
       case prefix && operator === '--':
         return () => {
           const { parent, lastKey } = getParentAndLastKey();
@@ -1744,8 +1857,7 @@ export default class Customize {
           }
           currentVarScope.__supportContine__ = storeSupportContinue;
         };
-      }
-      else if (hasReturnStatement) {
+      } else if (hasReturnStatement) {
         return () => {
           let current = lines[0];
           while(current) {
@@ -2134,7 +2246,12 @@ export default class Customize {
           default:
             return () => {
               const {parent, lastKey, params} = getFunInfos();
-              return parent[lastKey](...params);
+              try {
+                return parent[lastKey](...params);
+              } catch (err) {
+                console.log('#### err', err, { calleeDslJson, paramsDsl, lastKey, parent, params, thisVarScope: this.varScope });
+                throw err;
+              }
             };
         }
     }
