@@ -313,6 +313,7 @@ const batchExec10 = (statementList: Function[], startIndex: number, endIndex: nu
  */
 const batchExec = (statementList: Function[]) => {
   const len = statementList.length;
+  if (!len) return _.noop;
   const lastIndex = len - 1;
   if (len <= 10) return batchExec10(statementList, 0, lastIndex);
   const count = Math.ceil(len / 10);
@@ -324,6 +325,28 @@ const batchExec = (statementList: Function[]) => {
   }
   // 递归输出
   return batchExec(batchExecStatements);
+};
+
+const checkDslIsLiteral= (dsl: DslJson, getLiteral: Function = _.noop) => {
+  if (dsl.type === 'literal') {
+    getLiteral(dsl.value);
+  } else if (dsl.t === 'l') {
+    getLiteral(dsl.v);
+  } else if (_.isString(dsl) || _.isNumber(dsl) || _.isBoolean(dsl)) {
+    getLiteral(dsl);
+  } else {
+    return false;
+  }
+  return true;
+};
+
+const checkDslListIsLiteral = (dslList?: DslJson[]) => {
+  const literalValue: any[] = [];
+  // 是否为字面量
+  const isLiteral = dslList?.every(item =>
+    checkDslIsLiteral(item, (value => literalValue.push(value)))
+  );
+  return { literalValue, isLiteral };
 };
 
 // 自定义的方法
@@ -423,18 +446,18 @@ export default class Customize {
   let(key: string, valueDsl?: DslJson, isVarKind: boolean = false, onlyDeclare: boolean = false, assignArg: boolean = false) {
     const varScope = this.varScope;
     let isLiteral = true;
-      let literalValue: any;
-      if (!valueDsl) {
-      } else if (valueDsl.type === 'literal') {
-        literalValue = valueDsl.value;
-      } else if (valueDsl.t === 'l') {
-        literalValue = valueDsl.v;
-      } else if (_.isString(valueDsl) || _.isNumber(valueDsl)) {
-        literalValue = valueDsl;
-      } else {
-        // 默认非字面量
-        isLiteral = false;
-      }
+    let literalValue: any;
+    if (!valueDsl) {
+    } else if (valueDsl.type === 'literal') {
+      literalValue = valueDsl.value;
+    } else if (valueDsl.t === 'l') {
+      literalValue = valueDsl.v;
+    } else if (_.isString(valueDsl) || _.isNumber(valueDsl)) {
+      literalValue = valueDsl;
+    } else {
+      // 默认非字面量
+      isLiteral = false;
+    }
     if (_.has(varScope, key)) {
       if (isVarKind) {
           const preGetValue = valueDsl ? this.getValue(valueDsl) : _.noop;
@@ -500,23 +523,30 @@ export default class Customize {
     return this.let(key, valueDsl, true, onlyDeclare, assignArg);
   }
   batchVar(list: { key: string, value: any, k?: string, v?: any }[], assignArg: boolean = false) {
+    let isDeclare = true;
     const varCalls = list.map((item) => {
       const { key, value, k, v } = item;
       const onlyDeclare = key ? !_.has(item, 'value') : !_.has(item, 'v');
+      if (!onlyDeclare || assignArg) isDeclare = false;
       return key ? this.var(key, value, onlyDeclare, assignArg) : this.var(k!, v, onlyDeclare, assignArg);
     });
+    // 没有批量声明
+    if (isDeclare) {
+      return function() {};
+    }
     const len = list.length;
     if (assignArg) {
-      return function() {
+      return function(value: any) {
         for(let i = 0; i < len; ++i) {
-          varCalls[i](arguments[0]);
+          varCalls[i](value);
         }
       };
     }
-    return function() {
-      for(let i = 0; i < len; ++i) {
-        varCalls[i]();
-      }
+    const batchExecStatements = batchExec(varCalls);
+    return () => {
+      try {
+        batchExecStatements();
+      } catch {}
     };
   }
   batchLet(list: { key: string, value: any }[]) {
@@ -693,7 +723,7 @@ export default class Customize {
         }
         : getParentKeyPath;
 
-      const fullKeyPathLen = lastKeyIndex + 1;
+      const fullKeyPathLen = hasLastKey ? lastKeyIndex + 1 : 0;
 
       // isSimple 时的获取成员
       const getSimpleMember = getMemberCall(memberLen, parentKeyPath);
@@ -717,9 +747,14 @@ export default class Customize {
           getTargetScope = () => getSimpleMember(firstKeyCall());
           if (lastKeyIsSimple) {
             getTargetValue = () => getSimpleTargetValue(firstKeyCall())
-          } else {
+          } else if (hasLastKey) {
+            // 有 lastKey
             getTargetValue = () => {
               updateLastKey(lastKeyCall());
+              return getSimpleTargetValue(firstKeyCall());
+            }
+          } else {
+            getTargetValue = () => {
               return getSimpleTargetValue(firstKeyCall());
             }
           }
@@ -778,7 +813,6 @@ export default class Customize {
           currentRootScopeType === 'local'
           ? () => {
             const fullKeyPath = getFullKeyPath();
-
             return getValue(this.varScope, fullKeyPath);
           }
           : () => getValue(globalScope, getFullKeyPath())
@@ -788,8 +822,15 @@ export default class Customize {
       switch(type) {
         case 'assign': {
           const preGetValue = valueDsl ? this.getValue(valueDsl) : _.noop;
-          const isLiteral = valueDsl!.t === 'l' || valueDsl!.type === 'literal';
-          const literalValue = isLiteral ? valueDsl!.value : valueDsl!.v;
+          let isLiteral = true;
+          let literalValue: any;
+          if (valueDsl!.t === 'l') {
+            literalValue = valueDsl!.v;
+          } else if (valueDsl!.type === 'literal') {
+            literalValue = valueDsl!.value;
+          } else {
+            isLiteral = false;
+          }
           const getResult = this.getResultByOperator(operator);
           // 这里不需要针对 lastKeyIsSimple 做优化，因为优化后性能看不出区别
           if (assignArg) {
@@ -832,11 +873,13 @@ export default class Customize {
             } catch (err) {
               console.log('getOrAssignOrDissocPath, type === "get" 失败', {
                 keyPathOfDsl,
+                fullKeyPathLen,
                 currentRootScopeType,
                 'this.varScope': this.varScope,
                 globalScope,
                 isSimple,
                 lastKeyIsSimple,
+                hasLastKey,
                 parentVarScopeKeyPath,
               });
               throw err;
@@ -912,15 +955,29 @@ export default class Customize {
     }
   }
   // 返回值
-  callReturn(dslJson: DslJson) {
+  callReturn(dslJson?: DslJson) {
     this.varScope.__hasReturnStatement__ = true;
     // 标记已经返回
-    const preGetValue = dslJson ? this.getValue(dslJson) : _.noop;
-    return () => {
-      const result = preGetValue();
-      this.varScope.__returnObject__ = {
-        result
+    if (dslJson) {
+      let literalValue: any;
+      const isLiteral = checkDslIsLiteral(dslJson, (value) => literalValue = value);
+      if (isLiteral) {
+        return () => {
+          this.varScope.__returnObject__ = {
+            result: literalValue
+          }
+        };
       }
+      const preGetValue = this.getValue(dslJson);
+      return () => {
+        const result = preGetValue();
+        this.varScope.__returnObject__ = {
+          result
+        }
+      };
+    }
+    return () => {
+      this.varScope.__returnObject__ = { result: undefined }
     };
   }
   // break
@@ -1322,12 +1379,16 @@ export default class Customize {
     }
     if (leftIsLiteral && rightIsLiteral) {
       // 性能最佳情况
+      let result: any;
       switch(operator) {
         case "||":
-          return () => leftLiteral || rightLiteral;
+          result = leftLiteral || rightLiteral;
+          break;
         case "&&":
-          return () => leftLiteral && rightLiteral;
+          result = leftLiteral && rightLiteral;
+          break;
       }
+      return () => result;
     } else if (leftIsLiteral) {
       switch(operator) {
         case "||":
@@ -1397,7 +1458,11 @@ export default class Customize {
           resolveCall();
           if (currentVarScope.__isContinute__) {
             currentVarScope.__isContinute__ = currentVarScope.__keepContinue__;
-            continue;
+            // 这里不需要调用 contine 语句，因为 resolveCall 已经实现了此操作
+            if (currentVarScope.__keepContinue__) {
+              // 这里调用 break 是遇到了「continue label」
+              break;
+            }
           }
         }
       };
@@ -1986,31 +2051,22 @@ export default class Customize {
   // 调用方法
   callFun(calleeDslJson: DslJson, paramsDsl?: DslJson[], isClass = false) {
     const calleeDsl: DslJson[] = this.checkMemberExpression(calleeDslJson) ? this.getMemberExpressionValue(calleeDslJson) : [calleeDslJson];
-    const getParentAndLastKey = this.getOrAssignOrDissocPath(calleeDsl, undefined, undefined, 'parentAndLastKey') as Function;
     const dslLen = (calleeDsl as DslJson[]).length;
-    const lastIndex = dslLen - 1;
-    const lastMember: string = calleeDsl[lastIndex] as string;
 
-    let getParams = () => [] as any;
+    const getParentAndLastKey: Function = this.getOrAssignOrDissocPath(calleeDsl, undefined, undefined, dslLen === 1 ? 'get' : 'parentAndLastKey');
+
     const paramsLen = paramsDsl?.length;
-    if (paramsLen) {
-      // 表示有入参
-      const paramItems = paramsDsl.map(item => this.getValue(item));
-      getParams = () => {
-        // 不要使用 Array.map，Array.push 性能太低了
-        const params: any[] = [];
-        for(let i = 0; i < paramsLen; ++i) {
-          params[i] = paramItems[i]();
-        }
-        return params;
-      };
-    }
+    const paramItems = paramsDsl?.map(item => this.getValue(item));
 
-    const getFunInfos = () => {
-      const { parent, lastKey } = getParentAndLastKey();
-      const params = getParams() as any[];
-      return { parent, lastKey, params };
-    };
+    const { literalValue, isLiteral } = checkDslListIsLiteral(paramsDsl);
+
+    const getParams = () => {
+      const params: any[] = new Array(paramsLen);
+      for(let i = 0; i < paramsLen!; ++i) {
+        params[i] = paramItems![i]();
+      }
+      return params;
+    }
 
     const noFunction = (type) => {
       console.log('type:', {
@@ -2022,239 +2078,138 @@ export default class Customize {
       throw new Error(`非函数类型： ${_.isArray(calleeDsl) ? (calleeDsl as DslJson[]).join('.') : ((calleeDsl as DslJson)?.value || (calleeDsl as DslJson)?.v)}`);
     };
 
-    // 极简情况
-    if (dslLen === 1) {
-      if (isClass) {
-        switch(paramsDsl?.length || 0) {
-          case 0:
-            return () => {
-              const { parent: callee } = getFunInfos();
-              return new callee;
-            };
-          case 1:
-            return () => {
-              const { parent: callee, params } = getFunInfos();
-              return new callee(params[0]);
-            };
-          case 2:
-            return () => {
-              const { parent: callee, params } = getFunInfos();
-              return new callee(params[0], params[1]);
-            };
-          case 3:
-            return () => {
-              const { parent: callee, params } = getFunInfos();
-              return new callee(params[0], params[1], params[2]);
-            };
-          case 4:
-            return () => {
-              const { parent: callee, params } = getFunInfos();
-              return new callee(params[0], params[1], params[2], params[3]);
-            };
-          case 5:
-            return () => {
-              const { parent: callee, params } = getFunInfos();
-              return new callee(params[0], params[1], params[2], params[3], params[4]);
-            };
-          case 6:
-            return () => {
-              const { parent: callee, params } = getFunInfos();
-              return new callee(params[0], params[1], params[2], params[3], params[4], params[5]);
-            };
-          case 7:
-            return () => {
-              const { parent: callee, params } = getFunInfos();
-              return new callee(params[0], params[1], params[2], params[3], params[4], params[5], params[6]);
-            };
-          case 8:
-            return () => {
-              const { parent: callee, params } = getFunInfos();
-              return new callee(params[0], params[1], params[2], params[3], params[4], params[5], params[6], params[7]);
-            };
-          case 9:
-            return () => {
-              const { parent: callee, params } = getFunInfos();
-              return new callee(params[0], params[1], params[2], params[3], params[4], params[5], params[6], params[7], params[8]);
-            };
-          case 10:
-            return () => {
-              const { parent: callee, params } = getFunInfos();
-              return new callee(params[0], params[1], params[2], params[3], params[4], params[5], params[6], params[7], params[8], params[9]);
-            };
-          default:
-        }
-        return () => {
-          const { parent: callee, params } = getFunInfos();
-          try {
-            return new callee(...params);
-          } catch {
-            noFunction('class');
-          }
+    let returnNewClass = () => {
+      const { parent, lastKey } = getParentAndLastKey();
+      // try {
+        return new parent[lastKey];
+      // } catch {
+      //   noFunction('class');
+      // }
+    };
+
+    // 纯函数
+    let returnNewIdentifierClass = () => {
+      const parent = getParentAndLastKey();
+      // try {
+        return new parent;
+      // } catch {
+      //   noFunction('class');
+      // }
+    };
+
+    let returnFunctionCall = () => {
+      const { parent, lastKey } = getParentAndLastKey();
+      try {
+        return parent[lastKey]();
+      } catch (err) {
+        console.log('**** callFun err ****', err, { calleeDslJson, paramsDsl, lastKey, parent, thisVarScope: this.varScope });
+        throw err;
+      }
+    };
+
+    let returnIdentifierFunctionCall = () => {
+      const parent = getParentAndLastKey();
+      try {
+        return parent();
+      } catch (err) {
+        console.log('**** callFun err ****', err, { calleeDslJson, paramsDsl, parent, thisVarScope: this.varScope });
+        throw err;
+      }
+    };
+
+    if (paramsLen) {
+      if (isLiteral) {
+        returnNewClass = () => {
+          const { parent, lastKey } = getParentAndLastKey();
+          // try {
+            return new parent[lastKey](...literalValue);
+          // } catch {
+          //   noFunction('class');
+          // }
         };
-      }
-      switch (paramsDsl?.length || 0) {
-        case 0:
-          return () => {
-            const { parent: callee } = getFunInfos();
-            return callee();
-          };
-        case 1:
-          return () => {
-            const { parent: callee, params } = getFunInfos();
-            return callee(params[0]);
-          };
-        case 2:
-          return () => {
-            const { parent: callee, params } = getFunInfos();
-            return callee(params[0], params[1]);
-          };
-        case 3:
-          return () => {
-            const { parent: callee, params } = getFunInfos();
-            return callee(params[0], params[1], params[2]);
-          };
-        case 4:
-          return () => {
-            const { parent: callee, params } = getFunInfos();
-            return callee(params[0], params[1], params[2], params[3]);
-          };
-        case 5:
-          return () => {
-            const { parent: callee, params } = getFunInfos();
-            return callee(params[0], params[1], params[2], params[3], params[4]);
-          };
-        case 6:
-          return () => {
-            const { parent: callee, params } = getFunInfos();
-            return callee(params[0], params[1], params[2], params[3], params[4], params[5]);
-          };
-        case 7:
-          return () => {
-            const { parent: callee, params } = getFunInfos();
-            return callee(params[0], params[1], params[2], params[3], params[4], params[5], params[6]);
-          };
-        case 8:
-          return () => {
-            const { parent: callee, params } = getFunInfos();
-            return callee(params[0], params[1], params[2], params[3], params[4], params[5], params[6], params[7]);
-          };
-        case 9:
-          return () => {
-            const { parent: callee, params } = getFunInfos();
-            return callee(params[0], params[1], params[2], params[3], params[4], params[5], params[6], params[7], params[8]);
-          };
-        case 10:
-          return () => {
-            const { parent: callee, params } = getFunInfos();
-            return callee(params[0], params[1], params[2], params[3], params[4], params[5], params[6], params[7], params[8], params[9]);
-          };
-        case 11:
-          return () => {
-            const { parent: callee, params } = getFunInfos();
-            return callee(params[0], params[1], params[2], params[3], params[4], params[5], params[6], params[7], params[8], params[9], params[10]);
-          };
-        default:
-          return () => {
-            const { parent: callee, params } = getFunInfos();
-            return callee(...params);
-          };
-      }
-    }
 
-    if (isClass) {
-      return () => {
-        const {parent, lastKey, params} = getFunInfos();
-        try {
-          return new parent[lastKey](...params);
-        } catch {
-          noFunction('class');
-        }
-      };
-    }
+        // 纯函数
+        returnNewIdentifierClass = () => {
+          const parent = getParentAndLastKey();
+          // try {
+            return new parent(...literalValue);
+          // } catch {
+          //   noFunction('class');
+          // }
+        };
 
-    switch(lastMember) {
-      case 'call':
-      case 'apply':
-      case 'bind':
-        return () => {
-          const {parent, lastKey, params} = getFunInfos();
+        returnFunctionCall = () => {
+          const { parent, lastKey } = getParentAndLastKey();
           try {
-            return parent[lastKey](...params);
+            return parent[lastKey](...literalValue);
           } catch (err) {
-            console.log(`-----${lastKey} 错误：`, { params, paramsDsl, calleeDsl, parent, lastKey, err }, this.varScope);
-            // noFunction(lastKey);
+            console.log('**** callFun err ****', err, { calleeDslJson, paramsDsl, lastKey, parent, params: literalValue, thisVarScope: this.varScope });
             throw err;
           }
         };
-      default:
-        switch(paramsDsl?.length || 0) {
-          case 0:
-            return () => {
-              const {parent, lastKey} = getFunInfos();
-              return parent[lastKey]();
-            };
-          case 1:
-            return () => {
-              const {parent, lastKey, params} = getFunInfos();
-              return parent[lastKey](params[0]);
-            };
-          case 2:
-            return () => {
-              const {parent, lastKey, params} = getFunInfos();
-              return parent[lastKey](params[0], params[1]);
-            };
-          case 3:
-            return () => {
-              const {parent, lastKey, params} = getFunInfos();
-              return parent[lastKey](params[0], params[1], params[2]);
-            };
-          case 4:
-            return () => {
-              const {parent, lastKey, params} = getFunInfos();
-              return parent[lastKey](params[0], params[1], params[2], params[3]);
-            };
-          case 5:
-            return () => {
-              const {parent, lastKey, params} = getFunInfos();
-              return parent[lastKey](params[0], params[1], params[2], params[3], params[4]);
-            };
-          case 6:
-            return () => {
-              const {parent, lastKey, params} = getFunInfos();
-              return parent[lastKey](params[0], params[1], params[2], params[3], params[4], params[5]);
-            };
-          case 7:
-            return () => {
-              const {parent, lastKey, params} = getFunInfos();
-              return parent[lastKey](params[0], params[1], params[2], params[3], params[4], params[5], params[6]);
-            };
-          case 8:
-            return () => {
-              const {parent, lastKey, params} = getFunInfos();
-              return parent[lastKey](params[0], params[1], params[2], params[3], params[4], params[5], params[6], params[7]);
-            };
-          case 9:
-            return () => {
-              const {parent, lastKey, params} = getFunInfos();
-              return parent[lastKey](params[0], params[1], params[2], params[3], params[4], params[5], params[6], params[7], params[8]);
-            };
-          case 10:
-            return () => {
-              const {parent, lastKey, params} = getFunInfos();
-              return parent[lastKey](params[0], params[1], params[2], params[3], params[4], params[5], params[6], params[7], params[8], params[9]);
-            };
-          default:
-            return () => {
-              const {parent, lastKey, params} = getFunInfos();
-              try {
-                return parent[lastKey](...params);
-              } catch (err) {
-                console.log('#### err', err, { calleeDslJson, paramsDsl, lastKey, parent, params, thisVarScope: this.varScope });
-                throw err;
-              }
-            };
-        }
+
+        returnIdentifierFunctionCall = () => {
+          const parent = getParentAndLastKey();
+          try {
+            return parent(...literalValue);
+          } catch (err) {
+            console.log('**** callFun err ****', err, { calleeDslJson, paramsDsl, parent, params: literalValue, thisVarScope: this.varScope });
+            throw err;
+          }
+        };
+      } else {
+        returnNewClass = () => {
+          const { parent, lastKey } = getParentAndLastKey();
+          const params = getParams();
+          // try {
+            return new parent[lastKey](...params);
+          // } catch {
+          //   noFunction('class');
+          // }
+        };
+
+        // 纯函数
+        returnNewIdentifierClass = () => {
+          const parent = getParentAndLastKey();
+          const params = getParams();
+          // try {
+            return new parent(...params);
+          // } catch {
+          //   noFunction('class');
+          // }
+        };
+
+        returnFunctionCall = () => {
+          const { parent, lastKey } = getParentAndLastKey();
+          const params = getParams();
+          try {
+            return parent[lastKey](...params);
+          } catch (err) {
+            console.log('**** callFun err ****', err, { calleeDslJson, paramsDsl, lastKey, parent, params, thisVarScope: this.varScope });
+            throw err;
+          }
+        };
+
+        returnIdentifierFunctionCall = () => {
+          const parent = getParentAndLastKey();
+          const params = getParams();
+          try {
+            return parent(...params);
+          } catch (err) {
+            console.log('**** callFun err ****', err, { calleeDslJson, paramsDsl, parent, params, thisVarScope: this.varScope });
+            throw err;
+          }
+        };
+      }
     }
+
+    // 极简情况
+    if (dslLen === 1) {
+      if (isClass) return returnNewIdentifierClass;
+      return returnIdentifierFunctionCall;
+    }
+    if (isClass) return returnNewClass;
+    return returnFunctionCall;
   }
   // tryCatch 语句
   callTryCatch(block: DslJson, handler?: DslJson, finalizer?: DslJson) {
