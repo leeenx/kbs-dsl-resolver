@@ -209,7 +209,7 @@ export default class Customize {
       ['setLet', 'sL'],
       ['callReturn', 'cR'],
       ['callBreak', 'cBr'],
-      ['callContinute', 'cCo'],
+      ['callContinue', 'cCo'],
       ['callUnary', 'cU'],
       ['callBinary', 'cB'],
       ['callUpdate', 'cUp'],
@@ -751,7 +751,7 @@ export default class Customize {
     }
   }
   // continute
-  callContinute(label?: string) {
+  callContinue(label?: string) {
     this.varScope.__hasContinueStatement__ = true;
     if (label) {
       if (!this.varScope.__labels__.includes(label)) {
