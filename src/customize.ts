@@ -199,7 +199,7 @@ const getMemberCall = (count: number, keyPath?: string[], updateLastKeyCall: Fun
       return (target: any, keyPath: string[]) => target[keyPath[0]][keyPath[1]][keyPath[2]][keyPath[3]][keyPath[4]][keyPath[5]][keyPath[6]][keyPath[7]][keyPath[8]][keyPath[9]];
     }
     default:
-      console.warn('长度超10的 object', count);
+      console.warn('长度超10的 object', count, keyPath);
       updateLastKeyCall((lastValue: any) => keyPath![count - 1] = lastValue);
       return (target: any, keyPath: string[]) => _.get(target, keyPath);
   }
