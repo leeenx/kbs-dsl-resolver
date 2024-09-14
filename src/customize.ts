@@ -931,14 +931,31 @@ export default class Customize {
               const targetScope = getTargetScope();
               const lastKey = lastKeyCall();
               const result = getResult(targetScope[lastKey], value);
-              return targetScope[lastKey] = result;
+              try {
+                return targetScope[lastKey] = result;
+              } catch (err) {
+                if (err.toString().indexOf('Cannot assign to read only property') !== -1) {
+                  // 只读属性被赋值，忽略
+                  return result;
+                }
+                throw err;
+              }
             };
           }
           if (isLiteral) {
             return () => {
               const targetScope = getTargetScope();
               const lastKey = lastKeyCall();
-              return targetScope[lastKey] = getResult(targetScope[lastKey], literalValue);
+              const result = getResult(targetScope[lastKey], literalValue);
+              try {
+                return targetScope[lastKey] = result;
+              } catch (err) {
+                if (err.toString().indexOf('Cannot assign to read only property') !== -1) {
+                  // 只读属性被赋值，忽略
+                  return result;
+                }
+                throw err;
+              }
             };
           }
           return () => {
@@ -946,7 +963,16 @@ export default class Customize {
             const lastKey = lastKeyCall();
             // 要在 lastKey 之后调用 preGetValue
             const value = preGetValue();
-            return targetScope[lastKey] = getResult(targetScope[lastKey], value);
+            const result = getResult(targetScope[lastKey], value);
+            try {
+              return targetScope[lastKey] = result;
+            } catch (err) {
+              if (err.toString().indexOf('Cannot assign to read only property') !== -1) {
+                // 只读属性被赋值，忽略
+                return result;
+              }
+              throw err;
+            }
           };
         }
         case 'dissocPath': {
