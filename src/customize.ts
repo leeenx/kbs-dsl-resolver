@@ -934,7 +934,11 @@ export default class Customize {
               try {
                 return targetScope[lastKey] = result;
               } catch (err) {
-                if (err.toString().indexOf('Cannot assign to read only property') !== -1) {
+                const errMsg = err.toString();
+                if (
+                  errMsg.indexOf('assign to read only property') !== -1 // 开发环境
+                  || errMsg.indexOf('assign to readonly property') !== -1 // 真机
+                ) {
                   // 只读属性被赋值，忽略
                   return result;
                 }
@@ -950,7 +954,11 @@ export default class Customize {
               try {
                 return targetScope[lastKey] = result;
               } catch (err) {
-                if (err.toString().indexOf('Cannot assign to read only property') !== -1) {
+                const errMsg = err.toString();
+                if (
+                  errMsg.indexOf('assign to read only property') !== -1 // 开发环境
+                  || errMsg.indexOf('assign to readonly property') !== -1 // 真机
+                ) {
                   // 只读属性被赋值，忽略
                   return result;
                 }
@@ -967,11 +975,15 @@ export default class Customize {
             try {
               return targetScope[lastKey] = result;
             } catch (err) {
-              if (err.toString().indexOf('Cannot assign to read only property') !== -1) {
-                // 只读属性被赋值，忽略
-                return result;
-              }
-              throw err;
+              const errMsg = err.toString();
+                if (
+                  errMsg.indexOf('assign to read only property') !== -1 // 开发环境
+                  || errMsg.indexOf('assign to readonly property') !== -1 // 真机
+                ) {
+                  // 只读属性被赋值，忽略
+                  return result;
+                }
+                throw err;
             }
           };
         }
