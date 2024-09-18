@@ -1766,11 +1766,16 @@ export default class Customize {
     isBlockStatement = false,
     supportBreak = false,
     supportContinue = false,
-    isDeclaration = false
+    isDeclaration = false,
+    preResolve?: (self: Customize) => void
   ) {
     const parentVarScope = this.varScope;
     // 预解析使用的 customize
     const customize = isBlockStatement ? this : new Customize(parentVarScope);
+
+    if (preResolve) {
+      preResolve(customize);
+    }
 
     // 以下用于定位错位信息
     // customize.varScope.$$__body__$$ = body;
@@ -2048,9 +2053,15 @@ export default class Customize {
         }
       };
       const initVarScope = customize.varScope;
-      return () => {
+      /**
+       * nameSpaceVarScope 表示具体作用域注册进来的新变量
+       */
+      return (nameSpaceVarScope?: Record<string, any>) => {
         // 相当于初始化函数
         const varScope = { ...initVarScope };
+        if (nameSpaceVarScope) {
+          Object.assign(varScope, nameSpaceVarScope);
+        }
         if (!this.updateVarScope(varScope)) {
           // 默认父级作用域
           Object.defineProperty(varScope, '__parentVarScope__', {
@@ -2427,7 +2438,7 @@ export default class Customize {
 const moduleScopeMap: Record<string, Customize> = {};
 
 // 全局作用域名
-export const createModuleScope = (nameSpace?: string) => {
+export const createModule = (nameSpace?: string) => {
   const customize = new Customize();
   if (nameSpace) {
     const moduleScope = moduleScopeMap[nameSpace];
@@ -2456,11 +2467,23 @@ export const registerToGlobleScope = (member: Object) => {
   Object.assign(globalScope, member);
 };
 
+// 注册到 nameSpace 的成员
+const memberOfNameSpaceScope: Record<string, Record<string, any>> = {};
+
+export const getRegisteredMembers = (nameSpace: string) => memberOfNameSpaceScope[nameSpace];
+
 // 提供给开发注册的接口
-export const registerToScope = (nameSpace: string, member: Object) => {
-  const moduleScope = createModuleScope(nameSpace);
-  if (typeof member !== 'object') {
+export const registerToScope = (nameSpace: string, members: Object) => {
+  const moduleScope = createModule(nameSpace);
+  if (typeof members !== 'object') {
     throw new Error('registerToScope 只支持类型为 Object 的参数');
   }
-  Object.assign(moduleScope.varScope, member);
+  Object.assign(moduleScope.varScope, members);
+  // 保留一份纯净的外部注册的成员
+  let nameSpaceMembers: Record<string, any> = memberOfNameSpaceScope[nameSpace];
+  if (!nameSpaceMembers) {
+    nameSpaceMembers = {};
+    memberOfNameSpaceScope[nameSpace] = nameSpaceMembers;
+  }
+  Object.assign(nameSpaceMembers, members);
 };

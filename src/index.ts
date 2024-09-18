@@ -1,14 +1,17 @@
 import * as helpers from './helpers';
 import {
   registerToGlobleScope,
-  createModuleScope,
+  createModule,
   globalScope,
-  registerToScope
+  registerToScope,
+  getRegisteredMembers
 } from './customize';
 import dslResolve, { DslJson } from './dsl-resolver';
 
 // 注册 @babel/runtime/helpers
 registerToGlobleScope({ ...helpers });
+
+const MEMO_RESOLVED_FUNCIONS: Record<string, any> = {};
 
 /**
  * 标准的解析器
@@ -17,24 +20,48 @@ registerToGlobleScope({ ...helpers });
 export default function stdResolve(
   dslJson: DslJson | DslJson[],
   nameSpace?: string,
+  enableCache?: boolean,
   hotUpdateEnabel?: boolean
 ) {
-  const moduleScope = createModuleScope(nameSpace);
+  const currentModule = createModule(nameSpace);
   const dslList = Array.isArray(dslJson) ? dslJson : [dslJson];
-  moduleScope.varScope.__isHotUpdating__ = hotUpdateEnabel;
-  dslList.forEach(item => {
-    // @ts-ignore
-    const resolveItem = dslResolve(item, moduleScope);
-    resolveItem();
-  });
-  moduleScope.varScope.__isHotUpdating__ = false;
-  return moduleScope.varScope.module.exports;
+  currentModule.varScope.__isHotUpdating__ = hotUpdateEnabel;
+
+  const members = getRegisteredMembers(nameSpace!);
+  const initModuleByNameSpace: Function = (() => {
+    let initModule: Function | undefined  = undefined;
+    if (enableCache && nameSpace) {
+      initModule = MEMO_RESOLVED_FUNCIONS[nameSpace];
+    }
+    if (!initModule) {
+      initModule = currentModule.createFunction(
+        [],
+        dslList,
+        'initModuleByNameSpace',
+        false,
+        false,
+        false,
+        false,
+        (self) => {
+          // 在作用域上把 memebers 打上
+          Object.assign(self.varScope, members);
+        }
+      );
+      if (nameSpace && enableCache) {
+        MEMO_RESOLVED_FUNCIONS[nameSpace] = initModule;
+      }
+    }
+    return initModule;
+  })();
+  initModuleByNameSpace({ ...members })();
+  currentModule.varScope.__isHotUpdating__ = false;
+  return currentModule.varScope.module.exports;
 }
 
 export {
   globalScope,
   dslResolve,
   registerToScope,
-  createModuleScope,
+  createModule,
   registerToGlobleScope
 };
