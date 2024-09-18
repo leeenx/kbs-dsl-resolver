@@ -2054,15 +2054,14 @@ export default class Customize {
       };
       const initVarScope = customize.varScope;
       /**
-       * nameSpaceVarScope 表示具体作用域注册进来的新变量
+       * parentVarScope 注册进来的新变量
        */
-      return (nameSpaceVarScope?: Record<string, any>) => {
+      return (parentVarScope?: Record<string, any>) => {
         // 相当于初始化函数
         const varScope = { ...initVarScope };
-        if (nameSpaceVarScope) {
-          Object.assign(varScope, nameSpaceVarScope);
-        }
-        if (!this.updateVarScope(varScope)) {
+        if (parentVarScope) {
+          Object.assign(varScope, parentVarScope);
+        } else if (!this.updateVarScope(varScope)) {
           // 默认父级作用域
           Object.defineProperty(varScope, '__parentVarScope__', {
             value: customize.varScope.__parentVarScope__,

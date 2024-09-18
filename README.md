@@ -49,20 +49,3 @@ import resolve from 'kbs-dsl-resolver';
 const MyComponent = resolve(dslJson).default; // 使用 commonjs 打包的组件
 ```
 
-## libaryTarget 取值为 var
-
-受限于微信环境，目前 `kbs-dsl-resolver` 只支持四种 libaryTarget，即: umd, commonjs, commonjs2 和 var，其它选项需要开发者自己定制开发解决。
-使用 var 选项，在解析时不能使用标准的 api，需要按以下方式解析：
-
-```
-import { dslResolve, createModuleScope } from 'kbs-dsl-resolver';
-
-const moduleScope = createModuleScope();
-const dslList = Array.isArray(dslJson) ? dslJson : [dslJson];
-dslList.forEach(dsl => {
-  // @ts-ignore
-  dslResolve(dsl, moduleScope);
-});
-// 通过 moduleScope.varScope 来访问，假设 libary 取名为 app
-const MyComponent = moduleScope.varScope.app;
-```
