@@ -2132,7 +2132,7 @@ export default class Customize {
     const calleeDsl: DslJson[] = this.checkMemberExpression(calleeDslJson) ? this.getMemberExpressionValue(calleeDslJson) : [calleeDslJson];
     const dslLen = (calleeDsl as DslJson[]).length;
 
-    const getParentAndLastKey: Function = this.getOrAssignOrDissocPath(calleeDsl, undefined, undefined, dslLen === 1 ? 'get' : 'parentAndLastKey');
+    const getParentAndLastKey: Function = this.getOrAssignOrDissocPath(calleeDsl, undefined, undefined, dslLen === 1 ? 'get' : 'parentAndLastKey')!;
 
     const paramsLen = paramsDsl?.length;
     const paramItems = paramsDsl?.map(item => this.getValue(item));
