@@ -38,15 +38,33 @@ export const increaseMemoCache = (nameSpace: string, increaseCount: number) => {
     } else {
       const depth = Math.min(stackDepth + increaseCount, maxDepth);
       const needIncreaseCount = depth - stackDepth;
+      Object.assign(memoResolvedModuleInfo, { stackDepth: depth });
       for(let i = 0; i < needIncreaseCount; ++i) {
         addStackItem(stack);
       }
-      Object.assign(memoResolvedModuleInfo, { stackDepth: depth });
     }
   } catch (err) {
     console.error('解析扩容失败', err);
   }
 };
+
+// 获取当前的缓存条数
+export const getMemoCacheCount = (nameSpace: string) => new Promise((resolve) => {
+  let tryTimes = 10;
+  const siv = setInterval(() => {
+    const stackDepth = MEMO_RESOLVED_MODULE_SET[nameSpace]?.stackDepth;
+    if (typeof stackDepth === 'number') {
+      resolve(stackDepth);
+      clearInterval(siv);
+    } else if (--tryTimes <= 0) {
+      clearInterval(siv);
+      console.warn('获取缓存条数失败');
+    }
+  }, 50);
+});
+
+// 获取当前的缓存
+export const getMemoCache = (nameSpace: string) => MEMO_RESOLVED_MODULE_SET[nameSpace]?.stackDepth || 0;
 
 // 回收缓存
 export const recyleMemoCache = (nameSpace: string, stackItem: StackItem) => {
@@ -61,7 +79,14 @@ export const recyleMemoCache = (nameSpace: string, stackItem: StackItem) => {
 };
 
 // 注册 @babel/runtime/helpers
-registerToGlobleScope({ ...helpers, increaseMemoCache, recyleMemoCache });
+registerToGlobleScope({
+  ...helpers,
+  increaseMemoCache,
+  getMemoCacheCount,
+  getMemoCache,
+  recyleMemoCache,
+  MEMO_RESOLVED_MODULE_SET
+});
 
 /**
  * 标准的解析器
